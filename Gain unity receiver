@@ -81,10 +81,9 @@ function learnSample() (
 
 function addNewRatio() local(a) (
   _global.sampleEnded = 0;
-  
+
   currentRatio = (_global.gainUnityAverageVolume / sampleAverage);
   updateShortTermRatio(currentRatio);
-  hehoheho += 1;
   integratedRatio = ((integratedRatio * ratioCount) + currentRatio) / (ratioCount + 1);
   ratioCount += 1;
   setGainSliderValue();
@@ -120,7 +119,7 @@ currentRatio = 1;
 shortTermRatio = 1;
 integratedRatio = 1;
 ratioCount = 0;
-hello += 1;
+
 resetSample();
 initializeShortTermList();
 
