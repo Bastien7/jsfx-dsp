@@ -1,0 +1,20 @@
+import basic-util.jsfx-inc
+
+@init
+function resetSample() (
+  this.count = 0;
+  this.average = 1;
+);
+
+function hasSignalToLearn(currentLevel) (
+  currentLevel > 0.0001;
+);
+
+function learnNewLevel(sample) local(currentLevel) (
+    currentLevel = sample.getAbsoluteVolume();
+
+    this.hasSignalToLearn(currentLevel) ? (
+        this.average = (this.average * this.count + currentLevel) / (this.count + 1);
+        this.count += 1;
+    );
+);

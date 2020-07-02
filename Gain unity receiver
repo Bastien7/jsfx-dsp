@@ -1,5 +1,6 @@
 //desc: Gain unity receiver
 import basic-util.jsfx-inc
+import sample-measure.jsfx-inc
 
 in_pin: Left input
 in_pin: Right input
@@ -14,6 +15,11 @@ slider4:0<-24,24,0.1>Output volume
 
 @init
 ext_noinit = 1.0;
+
+function setGainSliderValue(ratio) (
+  slider4 = round(convertToDb(ratio), 1);
+);
+
 
 //short term functions
 function initializeShortTermList() local(i) (
@@ -37,15 +43,6 @@ function getAppliedRatio() (
   slider3 == 0 ? ((0*this.currentRatio + this.shortTermRatio) / 1) : (this.integratedRatio);
 );
 
-function setGainSliderValue(ratio) (
-  slider4 = round(convertToDb(ratio), 1);
-);
-
-function resetSample() (
-  this.sampleCount = 0;
-  this.sampleAverage = 1;
-  _global.sampleStarted = 0;
-);
 
 function resetIntegrationData() (
   this.integratedRatio = 1;
@@ -53,26 +50,16 @@ function resetIntegrationData() (
   this.wasLearning = 1;
 );
 
-function hasSignalToLearn(currentLevel) (
-  currentLevel > 0.0001;
-);
-
-function learnSample(currentLevel) (
-  this.sampleAverage = (this.sampleAverage * this.sampleCount + currentLevel) / (this.sampleCount + 1);
-  this.sampleCount += 1;
-);
-
 function addNewRatio(measure) local(a) (
   _global.sampleEnded = 0;
 
-  this.currentRatio = (_global.gainUnityAverageVolume / measure.sampleAverage);
+  this.currentRatio = (_global.gainUnityAverageVolume / measure.average);
   this.updateShortTermRatio(this.currentRatio);
   this.integratedRatio = ((this.integratedRatio * this.ratioCount) + this.currentRatio) / (this.ratioCount + 1);
   this.ratioCount += 1;
   setGainSliderValue(this.getAppliedRatio());
-  
-  measure.sampleCount = 0;
-  measure.sampleAverage = 0;
+
+  measure.resetSample();
 );
 
 function limitVolume(sample) local(endVolume) (
@@ -104,17 +91,8 @@ unifier.integratedRatio = 1;
 unifier.ratioCount = 0;
 
 measure.resetSample();
+_global.sampleStarted = 0;
 unifier.initializeShortTermList();
-
-measure.currentLevel = 0;
-
-function learnNewLevel(sample) local(currentLevel) (
-    currentLevel = (abs(sample.left) + abs(sample.right)) / 2;
-
-    this.hasSignalToLearn(currentLevel) ? (
-      this.learnSample(currentLevel);
-    );
-);
 
 
 @slider
@@ -135,7 +113,11 @@ _global.sampleEnded == 1 /*&& measure.hasSignalToLearn()*/ ? ( //condition remov
 @sample
 sample.getSample(spl0, spl1);
 
-_global.sampleStarted == 1 && measure.sampleCount != 0 ? measure.resetSample();
+_global.sampleStarted == 1 && measure.count != 0 ? (
+    measure.resetSample();
+    _global.sampleStarted = 0;
+);
+
 measure.learnNewLevel(sample);
 unifier.applyRatio(sample);
 

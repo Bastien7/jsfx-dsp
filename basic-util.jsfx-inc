@@ -16,6 +16,11 @@ function getSample(left, right) (
   this.right = right;
 );
 
+//Must be called with sample as 'this'
+function getAbsoluteVolume() (
+  (abs(this.left) + abs(this.right)) / 2;
+);
+
 //conversion function
 function convertToDb(ratio) (
   20 * log10(ratio);
