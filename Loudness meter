@@ -1,4 +1,4 @@
-slider1:100<0,1000,10>HPF
+slider1:60<0,1000,10>HPF
 slider2:1<.1, 2, 0.1>a1
 slider3:1<.1, 2, 0.1>s1
 
@@ -22,7 +22,7 @@ function getSample(left, right) (
 //Honestly I don't know how this stuff is working.
 //I reverse-engineered some code and extracted the parts I need.
 //It's only used for metering sidechain.
-function initHighpass() (
+function initHighpass() local(freq1, a1, s1, q1, w01, sinw01) (
   freq1 = slider1;
   a1 = slider2;//1;
   s1 = slider3;//1;
@@ -34,7 +34,7 @@ function initHighpass() (
   alpha1 = sinw01 / (2 * q1);
 );
 
-function applyHighpass() (
+function applyHighpass() local(b01, b11, b21, a01, a11, a21) (
   b01 = (1 + cosw01)/2;
   b11 = -(1 + cosw01);
   b21 = (1 + cosw01)/2;
@@ -63,18 +63,16 @@ function applyHighpass() (
 );
 
 
-function initHighShelf() (
+function initHighShelf() local(SPN, sx, cf, boost, sa, asq, A, F, F2, tmp, gammad, gamma2, gamman, gam2p1, siggam2, ta0, ta1, ta2, tb0, tb1, tb2, aa1, a0, a1, a2, b0, b1, b2, recipb0, gain) (
   SPN=0;
-  yl_ls=x1l_ls=x2l_ls=y1l_ls=y2l_ls=yr_ls=x1r_ls=x2r_ls=y1r_ls=y2r_ls=0;
   yl_hs=x1l_hs=x2l_hs=y1l_hs=y2l_hs=yr_hs=x1r_hs=x2r_hs=y1r_hs=y2r_hs=0;
-  
   
   sx = 16+slider4*1.20103;
   cf = floor(exp(sx*log(1.059))*8.17742);
-  freq2 = cf;
+  //freq2 = cf;
   cf /= srate;
   boost = -slider5;
-  
+
   sa = tan($pi*(cf-0.25));
   asq = sa*sa;
   A = 10^(boost/20.0);
@@ -107,48 +105,45 @@ function initHighShelf() (
   tb0 = gam2p1 + siggam2;
   tb1 = -2.0*(1.0 - gamma2);
   tb2 = gam2p1 - siggam2;
-  
+
   aa1 = sa*ta1;
   a0 = ta0 + aa1 + asq*ta2;
   a1 = 2.0*sa*(ta0+ta2)+(1.0+asq)*ta1;
   a2 = asq*ta0 + aa1 + ta2;
-  
+
   ab1 = sa*tb1;
   b0 = tb0 + ab1 + asq*tb2;
   b1 = 2.0*sa*(tb0+tb2)+(1.0+asq)*tb1;
   b2 = asq*tb0 + ab1 + tb2;
-  
+
   recipb0 = 1.0/b0;
   a0 *= recipb0;
   a1 *= recipb0;
   a2 *= recipb0;
   b1 *= recipb0;
   b2 *= recipb0;
-    
+
   gain = 10^(boost/20.0);
   a0_hs = a0/gain;
-  a1_hs = a1/gain; 
-  a2_hs = a2/gain; 
+  a1_hs = a1/gain;
+  a2_hs = a2/gain;
   b1_hs = -b1;
   b2_hs = -b2;
 );
 
 function applyHighShelf() (
-  xl_hs = this.left;
-  xr_hs = this.right;
-   
-  yl_hs = a0_hs*xl_hs + a1_hs*x1l_hs + a2_hs*x2l_hs + b1_hs*y1l_hs + b2_hs*y2l_hs;
+  yl_hs = a0_hs*this.left + a1_hs*x1l_hs + a2_hs*x2l_hs + b1_hs*y1l_hs + b2_hs*y2l_hs;
   x2l_hs = x1l_hs;
-  x1l_hs = xl_hs;
+  x1l_hs = this.left;
   y2l_hs = y1l_hs;
   y1l_hs = yl_hs;
-  
-  yr_hs = a0_hs*xr_hs + a1_hs*x1r_hs + a2_hs*x2r_hs + b1_hs*y1r_hs + b2_hs*y2r_hs;
+
+  yr_hs = a0_hs*this.right + a1_hs*x1r_hs + a2_hs*x2r_hs + b1_hs*y1r_hs + b2_hs*y2r_hs;
   x2r_hs = x1r_hs;
-  x1r_hs = xr_hs;
+  x1r_hs = this.right;
   y2r_hs = y1r_hs;
   y1r_hs = yr_hs;
-  
+
   this.left = yl_hs;
   this.right = yr_hs;
 );
