@@ -1,0 +1,151 @@
+@init
+
+//Honestly I don't know how this stuff is working.
+//I reverse-engineered some code and extracted the parts I need.
+//It's only used for metering sidechain.
+function initHighpass() local(freq1, a1, s1, q1, w01, sinw01) (
+  freq1 = 60;
+  a1 = 1;
+  s1 = 1;
+  //check on q to set the Q? it seems to work
+  q1 = 1 / (sqrt((a1 + 1/a1)*(1/s1 - 1) + 2));
+  w01 = 2 * $pi * freq1/srate;
+  this.cosw01 = cos(w01);
+  sinw01 = sin(w01);
+  this.alpha1 = sinw01 / (2 * q1);
+);
+
+function applyHighpass(sample) local(b01, b11, b21, a01, a11, a21, ospl0, ospl1) (
+  b01 = (1 + this.cosw01)/2;
+  b11 = -(1 + this.cosw01);
+  b21 = (1 + this.cosw01)/2;
+  a01 = 1 + this.alpha1;
+  a11 = -2 * this.cosw01;
+  a21 = 1 - this.alpha1;
+  b01 /= a01;
+  b11 /= a01;
+  b21 /= a01;
+  a11 /= a01;
+  a21 /= a01;
+
+  ospl0 = sample.left;
+  sample.left = b01 * sample.left + b11 * this.xl11 + b21 * this.xl21 - a11 * this.yl11 - a21 * this.yl21;
+  this.xl21 = this.xl11;
+  this.xl11 = ospl0;
+  this.yl21 = this.yl11;
+  this.yl11 = sample.left;
+
+  ospl1 = sample.right;
+  sample.right = b01 * sample.right + b11 * this.xr11 + b21 * this.xr21 - a11 * this.yr11 - a21 * this.yr21;
+  this.xr21 = this.xr11;
+  this.xr11 = ospl1;
+  this.yr21 = this.yr11;
+  this.yr11 = sample.right;
+);
+
+
+function initHighShelf() local(SPN, sx, cf, boost, sa, asq, A, F, F2, tmp, gammad, gamma2, gamman, gam2p1, siggam2, ta0, ta1, ta2, tb0, tb1, tb2, aa1, a0, a1, a2, ab1, b0, b1, b2, recipb0, gain) (
+  SPN=0;
+  this.yl_hs=this.x1l_hs=this.x2l_hs=this.y1l_hs=this.y2l_hs=this.yr_hs=this.x1r_hs=this.x2r_hs=this.y1r_hs=this.y2r_hs=0;
+
+  sx = 16+59.14*1.20103; //59.14 corresponds to 1200hz
+  cf = floor(exp(sx*log(1.059))*8.17742);
+  //freq2 = cf;
+  cf /= srate;
+  boost = -3.75; //+3.75db boost on the high shelf
+
+  sa = tan($pi*(cf-0.25));
+  asq = sa*sa;
+  A = 10^(boost/20.0);
+  (boost < 6.0) && (boost > -6.0) ? (
+    F = sqrt(A);
+  ) : (
+    (A > 1.0) ? (
+        F = A/sqrt(2.0);
+      ) : (
+        F = A*sqrt(2.0);
+      );
+  );
+  F2 = F*F;
+  tmp = A*A - F2;
+  abs(tmp) <= SPN ? (
+    gammad = 1.0;
+  ) : (
+    gammad = ((F2-1.0)/tmp)^(0.25);
+  );
+  gamman = sqrt(A)*gammad;
+  gamma2 = gamman*gamman;
+  gam2p1 = 1.0 + gamma2;
+  siggam2 = 2.0*sqrt(2.0)/2.0*gamman;
+  ta0 = gam2p1 + siggam2;
+  ta1 = -2.0*(1.0 - gamma2);
+  ta2 = gam2p1 - siggam2;
+  gamma2 = gammad*gammad;
+  gam2p1 = 1.0 + gamma2;
+  siggam2 = 2.0*sqrt(2.0)/2.0*gammad;
+  tb0 = gam2p1 + siggam2;
+  tb1 = -2.0*(1.0 - gamma2);
+  tb2 = gam2p1 - siggam2;
+
+  aa1 = sa*ta1;
+  a0 = ta0 + aa1 + asq*ta2;
+  a1 = 2.0*sa*(ta0+ta2)+(1.0+asq)*ta1;
+  a2 = asq*ta0 + aa1 + ta2;
+
+  ab1 = sa*tb1;
+  b0 = tb0 + ab1 + asq*tb2;
+  b1 = 2.0*sa*(tb0+tb2)+(1.0+asq)*tb1;
+  b2 = asq*tb0 + ab1 + tb2;
+
+  recipb0 = 1.0/b0;
+  a0 *= recipb0;
+  a1 *= recipb0;
+  a2 *= recipb0;
+  b1 *= recipb0;
+  b2 *= recipb0;
+
+  gain = 10^(boost/20.0);
+  this.a0_hs = a0/gain;
+  this.a1_hs = a1/gain;
+  this.a2_hs = a2/gain;
+  this.b1_hs = -b1;
+  this.b2_hs = -b2;
+);
+
+function applyHighShelf(sample) local(yl_hs, yr_hs) (
+  yl_hs = this.a0_hs*sample.left + this.a1_hs*this.x1l_hs + this.a2_hs*this.x2l_hs + this.b1_hs*this.y1l_hs + this.b2_hs*this.y2l_hs;
+  this.x2l_hs = this.x1l_hs;
+  this.x1l_hs = sample.left;
+  this.y2l_hs = this.y1l_hs;
+  this.y1l_hs = yl_hs;
+
+  yr_hs = this.a0_hs*sample.right + this.a1_hs*this.x1r_hs + this.a2_hs*this.x2r_hs + this.b1_hs*this.y1r_hs + this.b2_hs*this.y2r_hs;
+  this.x2r_hs = this.x1r_hs;
+  this.x1r_hs = sample.right;
+  this.y2r_hs = this.y1r_hs;
+  this.y1r_hs = yr_hs;
+
+  sample.left = yl_hs;
+  sample.right = yr_hs;
+);
+
+function initLoudnessWeighting() (
+  _highpass.initHighpass();
+  _highShelf.initHighShelf();
+);
+
+function applyLoudnessWeighting(sample) (
+  _highpass.applyHighpass(sample);
+  _highShelf.applyHighShelf(sample);
+);
+
+initLoudnessWeighting();
+
+/* DEMO
+@sample
+sample.getSample(spl0, spl1);
+applyLoudnessWeighting(sample);
+
+spl0 = sample.left;
+spl1 = sample.right;
+*/
