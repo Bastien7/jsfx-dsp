@@ -1,4 +1,5 @@
 //desc: Gain unity emitter
+import basic-util.jsfx-inc
 
 in_pin: Left input
 in_pin: Right input
@@ -7,34 +8,38 @@ out_pin: Right output
 
 
 @init
-_global.learnDuration != 0 ? (
-  duration = _global.learnDuration;
-) : (duration = srate;);
-
 _global.sampleStarted = 1;
 _global.sampleEnded = 0;
 _global.sampleSize = 0;
-count = 0;
-average = 0;
+measure.count = 0;
+measure.average = 0;
 
+function learnNewLevel(sample) local(currentLevel) (
+    currentLevel = (abs(sample.left) + abs(sample.right)) / 2;
 
-@block
-sampleEnded = _global.sampleEnded;
-
-count > _global.learnDuration && _global.sampleEnded != 1 ? (
-  _global.gainUnityAverageVolume = average;
-  _global.sampleEnded = 1;
-  _global.sampleSize = 0;
-  count = 0;
-  average = 0;
+    currentLevel > 0.001 && _global.sampleEnded != 1 ? (
+      this.average = (this.average * this.count + currentLevel) / (this.count + 1);
+      this.count += 1;
+      _global.sampleSize = this.count;
+    );
 );
 
-@sample
-currentLevel = (abs(spl0) + abs(spl1)) / 2;
+function sendAverage() (
+    this.count > _global.learnDuration && _global.sampleEnded != 1 ? (
+      _global.gainUnityAverageVolume = this.average;
+      _global.sampleEnded = 1;
+      _global.sampleSize = 0;
+      this.count = 0;
+      this.average = 0;
+    );
+);
 
-currentLevel > 0.001 && _global.sampleEnded != 1 ? (
-  signalDetected = 1;
-  average = (average * count + currentLevel) / (count + 1);
-  count += 1;
-  _global.sampleSize = count;
-) : (signalDetected = 0;);
+@block
+measure.sendAverage();
+
+@sample
+sample.getSample(spl0, spl1);
+measure.learnNewLevel(sample);
+
+spl0 = sample.left;
+spl1 = sample.right;

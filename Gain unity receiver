@@ -1,4 +1,5 @@
 //desc: Gain unity receiver
+import basic-util.jsfx-inc
 
 in_pin: Left input
 in_pin: Right input
@@ -7,147 +8,136 @@ out_pin: Right output
 
 //slider1:1<0,1,1>Learning (no/yes)
 slider2:20<5,100,1>Sample duration (ms)
-slider3:0<0,1,1{Short-term, Long-term}>Average mode (short-term/long-term)
-slider4:0<-24,24,0.1>Volume auto-adjustment
+slider3:0<0,1,1{Short-term,Long-term}>Average mode
+slider4:0<-24,24,0.1>Output volume
 
 
 @init
 ext_noinit = 1.0;
 
-// manage array pointers allocation
-nextPointer = 1000;
-function createArray(amount) local(result) (
-  result = nextPointer;
-  nextPointer += amount;
-  nextPointer == srate ? nextPointer = 1000;
-  
-  result;
-);
-
-//convertion function
-function convertToDb(ratio) (
-  20 * log10(ratio);
-);
-function round(value, precision) (
-  ceil(value * precision) / precision;
-);
-
 //short term functions
 function initializeShortTermList() local(i) (
-  shortTermRatioList = createArray(SHORT_TERM_RATIO_COUNT);
-  loop(SHORT_TERM_RATIO_COUNT, shortTermRatioList[i] = 1; i += 1;);
+  this.shortTermRatioList = createArray(this.SHORT_TERM_RATIO_COUNT);
+  loop(this.SHORT_TERM_RATIO_COUNT, this.shortTermRatioList[i] = 1; i += 1;);
 );
 function updateShortTermRatio(ratio) local(i, sum) (
   //insert new ratio in the short term list
-  shortTermRatioList[nextShortTermRatioIndex] = ratio;
-  nextShortTermRatioIndex += 1;
-  nextShortTermRatioIndex == SHORT_TERM_RATIO_COUNT ? nextShortTermRatioIndex = 0;
+  this.shortTermRatioList[this.nextShortTermRatioIndex] = ratio;
+  this.nextShortTermRatioIndex += 1;
+  this.nextShortTermRatioIndex == this.SHORT_TERM_RATIO_COUNT ? this.nextShortTermRatioIndex = 0;
   
   //compute the new short term ratio average
   sum = 0; i = 0;
-  loop(SHORT_TERM_RATIO_COUNT, sum += shortTermRatioList[i]; i += 1;);
+  loop(this.SHORT_TERM_RATIO_COUNT, sum += this.shortTermRatioList[i]; i += 1;);
   
-  shortTermRatio = sum / SHORT_TERM_RATIO_COUNT;
+  this.shortTermRatio = sum / this.SHORT_TERM_RATIO_COUNT;
 );
 
 function getAppliedRatio() (
-  slider3 == 0 ? ((0*currentRatio + shortTermRatio) / 1) : (integratedRatio);
+  slider3 == 0 ? ((0*this.currentRatio + this.shortTermRatio) / 1) : (this.integratedRatio);
 );
 
-function setGainSliderValue() (
-  slider4 = round(convertToDb(getAppliedRatio()), 10);
+function setGainSliderValue(ratio) (
+  slider4 = round(convertToDb(ratio), 1);
 );
 
 function resetSample() (
-  sampleCount = 0;
-  sampleAverage = 1;
+  this.sampleCount = 0;
+  this.sampleAverage = 1;
   _global.sampleStarted = 0;
 );
 
 function resetIntegrationData() (
-  integratedRatio = 1;
-  ratioCount = 0;
-  wasLearning = 1;
+  this.integratedRatio = 1;
+  this.ratioCount = 0;
+  this.wasLearning = 1;
 );
 
-function hasSignalToLearn() (
-  /*slider1 == 1 &&*/ currentLevel > 0.0001;
+function hasSignalToLearn(currentLevel) (
+  currentLevel > 0.0001;
 );
 
-function learnSample() (
-  sampleAverage = (sampleAverage * sampleCount + currentLevel) / (sampleCount + 1);
-  sampleCount += 1;
+function learnSample(currentLevel) (
+  this.sampleAverage = (this.sampleAverage * this.sampleCount + currentLevel) / (this.sampleCount + 1);
+  this.sampleCount += 1;
 );
 
-function addNewRatio() local(a) (
+function addNewRatio(measure) local(a) (
   _global.sampleEnded = 0;
 
-  currentRatio = (_global.gainUnityAverageVolume / sampleAverage);
-  updateShortTermRatio(currentRatio);
-  integratedRatio = ((integratedRatio * ratioCount) + currentRatio) / (ratioCount + 1);
-  ratioCount += 1;
-  setGainSliderValue();
+  this.currentRatio = (_global.gainUnityAverageVolume / measure.sampleAverage);
+  this.updateShortTermRatio(this.currentRatio);
+  this.integratedRatio = ((this.integratedRatio * this.ratioCount) + this.currentRatio) / (this.ratioCount + 1);
+  this.ratioCount += 1;
+  setGainSliderValue(this.getAppliedRatio());
   
-  sampleCount = 0;
-  sampleAverage = 0;
+  measure.sampleCount = 0;
+  measure.sampleAverage = 0;
 );
 
-function limitVolume() local(endVolume) (
-  endVolume = (abs(spl0) + abs(spl1)) / 2;
+function limitVolume(sample) local(endVolume) (
+  endVolume = (abs(sample.left) + abs(sample.right)) / 2;
+
   endVolume > 1 ? (
-    spl0 = spl0 / endVolume;
-    spl1 = spl1 / endVolume;
-    limited += 1;
+    sample.left = sample.left / endVolume;
+    sample.right = sample.right / endVolume;
   );
 );
 
-function applyRatio() local(appliedRatio) (
-  appliedRatio = getAppliedRatio();
+function applyRatio(sample) local(appliedRatio) (
+  appliedRatio = this.getAppliedRatio();
   
-  spl0 = spl0 * appliedRatio;
-  spl1 = spl1 * appliedRatio;
+  sample.left = sample.left * appliedRatio;
+  sample.right = sample.right * appliedRatio;
   
   limitVolume();
 );
 
 //variables initialization
 _global.learnDuration = srate;
-SHORT_TERM_RATIO_COUNT = 10;
-wasLearning = 1;
+unifier.SHORT_TERM_RATIO_COUNT = 10; //constant
+unifier.wasLearning = 1;
 
-currentRatio = 1;
-shortTermRatio = 1;
-integratedRatio = 1;
-ratioCount = 0;
+unifier.currentRatio = 1;
+unifier.shortTermRatio = 1;
+unifier.integratedRatio = 1;
+unifier.ratioCount = 0;
 
-resetSample();
-initializeShortTermList();
+measure.resetSample();
+unifier.initializeShortTermList();
 
+measure.currentLevel = 0;
+
+function learnNewLevel(sample) local(currentLevel) (
+    currentLevel = (abs(sample.left) + abs(sample.right)) / 2;
+
+    this.hasSignalToLearn(currentLevel) ? (
+      this.learnSample(currentLevel);
+    );
+);
 
 
 @slider
 _global.learnDuration = slider2 / 1000 * srate;
-setGainSliderValue();
+setGainSliderValue(unifier.getAppliedRatio());
 slider3 == 0 ? (wasLearning = 0);
-slider3 == 1 && wasLearning == 0 ? resetIntegrationData();
+slider3 == 1 && wasLearning == 0 ? unifier.resetIntegrationData();
 
 
 
 @block
-_global.sampleEnded == 1 && hasSignalToLearn() ? (
-  addNewRatio();
+_global.sampleEnded == 1 /*&& measure.hasSignalToLearn()*/ ? ( //condition removed for practicality, let's see if it's needed
+  unifier.addNewRatio(measure);
 );
 
 
 
 @sample
-currentLevel = (abs(spl0) + abs(spl1)) / 2;
-_global.sampleStarted == 1 && sampleCount != 0 ? (resetSample(););
+sample.getSample(spl0, spl1);
 
-hasSignalToLearn() ? (
-  learn += 1;
-  learnSample();
-);
+_global.sampleStarted == 1 && measure.sampleCount != 0 ? measure.resetSample();
+measure.learnNewLevel(sample);
+unifier.applyRatio(sample);
 
-applyRatio();
-//slider3 == 0 && slider1 == 1 && ratioCount > 0 ? (
+spl0 = sample.left;
+spl1 = sample.right;

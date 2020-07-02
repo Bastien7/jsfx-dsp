@@ -1,0 +1,26 @@
+@init
+
+// manage array pointers allocation
+nextPointer = 1000;
+function createArray(amount) local(result) (
+  result = nextPointer;
+  nextPointer += amount;
+  nextPointer == srate ? nextPointer = 1000;
+
+  result;
+);
+
+//Wrap the sample two sides in an "object"
+function getSample(left, right) (
+  this.left = left;
+  this.right = right;
+);
+
+//conversion function
+function convertToDb(ratio) (
+  20 * log10(ratio);
+);
+function round(value, precision) local(power) (
+  power = 10^precision;
+  ceil(value * power) / power;
+);
