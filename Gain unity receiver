@@ -1,0 +1,154 @@
+//desc: Gain unity receiver
+
+in_pin: Left input
+in_pin: Right input
+out_pin: Left output
+out_pin: Right output
+
+//slider1:1<0,1,1>Learning (no/yes)
+slider2:20<5,100,1>Sample duration (ms)
+slider3:0<0,1,1{Short-term, Long-term}>Average mode (short-term/long-term)
+slider4:0<-24,24,0.1>Volume auto-adjustment
+
+
+@init
+ext_noinit = 1.0;
+
+// manage array pointers allocation
+nextPointer = 1000;
+function createArray(amount) local(result) (
+  result = nextPointer;
+  nextPointer += amount;
+  nextPointer == srate ? nextPointer = 1000;
+  
+  result;
+);
+
+//convertion function
+function convertToDb(ratio) (
+  20 * log10(ratio);
+);
+function round(value, precision) (
+  ceil(value * precision) / precision;
+);
+
+//short term functions
+function initializeShortTermList() local(i) (
+  shortTermRatioList = createArray(SHORT_TERM_RATIO_COUNT);
+  loop(SHORT_TERM_RATIO_COUNT, shortTermRatioList[i] = 1; i += 1;);
+);
+function updateShortTermRatio(ratio) local(i, sum) (
+  //insert new ratio in the short term list
+  shortTermRatioList[nextShortTermRatioIndex] = ratio;
+  nextShortTermRatioIndex += 1;
+  nextShortTermRatioIndex == SHORT_TERM_RATIO_COUNT ? nextShortTermRatioIndex = 0;
+  
+  //compute the new short term ratio average
+  sum = 0; i = 0;
+  loop(SHORT_TERM_RATIO_COUNT, sum += shortTermRatioList[i]; i += 1;);
+  
+  shortTermRatio = sum / SHORT_TERM_RATIO_COUNT;
+);
+
+function getAppliedRatio() (
+  slider3 == 0 ? ((0*currentRatio + shortTermRatio) / 1) : (integratedRatio);
+);
+
+function setGainSliderValue() (
+  slider4 = round(convertToDb(getAppliedRatio()), 10);
+);
+
+function resetSample() (
+  sampleCount = 0;
+  sampleAverage = 1;
+  _global.sampleStarted = 0;
+);
+
+function resetIntegrationData() (
+  integratedRatio = 1;
+  ratioCount = 0;
+  wasLearning = 1;
+);
+
+function hasSignalToLearn() (
+  /*slider1 == 1 &&*/ currentLevel > 0.0001;
+);
+
+function learnSample() (
+  sampleAverage = (sampleAverage * sampleCount + currentLevel) / (sampleCount + 1);
+  sampleCount += 1;
+);
+
+function addNewRatio() local(a) (
+  _global.sampleEnded = 0;
+  
+  currentRatio = (_global.gainUnityAverageVolume / sampleAverage);
+  updateShortTermRatio(currentRatio);
+  hehoheho += 1;
+  integratedRatio = ((integratedRatio * ratioCount) + currentRatio) / (ratioCount + 1);
+  ratioCount += 1;
+  setGainSliderValue();
+  
+  sampleCount = 0;
+  sampleAverage = 0;
+);
+
+function limitVolume() local(endVolume) (
+  endVolume = (abs(spl0) + abs(spl1)) / 2;
+  endVolume > 1 ? (
+    spl0 = spl0 / endVolume;
+    spl1 = spl1 / endVolume;
+    limited += 1;
+  );
+);
+
+function applyRatio() local(appliedRatio) (
+  appliedRatio = getAppliedRatio();
+  
+  spl0 = spl0 * appliedRatio;
+  spl1 = spl1 * appliedRatio;
+  
+  limitVolume();
+);
+
+//variables initialization
+_global.learnDuration = srate;
+SHORT_TERM_RATIO_COUNT = 10;
+wasLearning = 1;
+
+currentRatio = 1;
+shortTermRatio = 1;
+integratedRatio = 1;
+ratioCount = 0;
+hello += 1;
+resetSample();
+initializeShortTermList();
+
+
+
+@slider
+_global.learnDuration = slider2 / 1000 * srate;
+setGainSliderValue();
+slider3 == 0 ? (wasLearning = 0);
+slider3 == 1 && wasLearning == 0 ? resetIntegrationData();
+
+
+
+@block
+_global.sampleEnded == 1 && hasSignalToLearn() ? (
+  addNewRatio();
+);
+
+
+
+@sample
+currentLevel = (abs(spl0) + abs(spl1)) / 2;
+_global.sampleStarted == 1 && sampleCount != 0 ? (resetSample(););
+
+hasSignalToLearn() ? (
+  learn += 1;
+  learnSample();
+);
+
+applyRatio();
+//slider3 == 0 && slider1 == 1 && ratioCount > 0 ? (

@@ -1,0 +1,40 @@
+//desc: Gain unity emitter
+
+in_pin: Left input
+in_pin: Right input
+out_pin: Left output
+out_pin: Right output
+
+
+@init
+_global.learnDuration != 0 ? (
+  duration = _global.learnDuration;
+) : (duration = srate;);
+
+_global.sampleStarted = 1;
+_global.sampleEnded = 0;
+_global.sampleSize = 0;
+count = 0;
+average = 0;
+
+
+@block
+sampleEnded = _global.sampleEnded;
+
+count > _global.learnDuration && _global.sampleEnded != 1 ? (
+  _global.gainUnityAverageVolume = average;
+  _global.sampleEnded = 1;
+  _global.sampleSize = 0;
+  count = 0;
+  average = 0;
+);
+
+@sample
+currentLevel = (abs(spl0) + abs(spl1)) / 2;
+
+currentLevel > 0.001 && _global.sampleEnded != 1 ? (
+  signalDetected = 1;
+  average = (average * count + currentLevel) / (count + 1);
+  count += 1;
+  _global.sampleSize = count;
+) : (signalDetected = 0;);

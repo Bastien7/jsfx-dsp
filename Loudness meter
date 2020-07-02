@@ -1,0 +1,168 @@
+slider1:100<0,1000,10>HPF
+slider2:1<.1, 2, 0.1>a1
+slider3:1<.1, 2, 0.1>s1
+
+slider4:59.2<0,100,0.05>High Shelf (Scale)
+slider5:3.75<-24,24,0.01>Gain (dB)
+
+
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+@init
+//Wrap the sample two sides in an "object"
+function getSample(left, right) (
+  this.left = left;
+  this.right = right;
+);
+
+//Honestly I don't know how this stuff is working.
+//I reverse-engineered some code and extracted the parts I need.
+//It's only used for metering sidechain.
+function initHighpass() (
+  freq1 = slider1;
+  a1 = slider2;//1;
+  s1 = slider3;//1;
+  //check on q to set the Q? it seems to work
+  q1 = 1 / (sqrt((a1 + 1/a1)*(1/s1 - 1) + 2));
+  w01 = 2 * $pi * freq1/srate;
+  cosw01 = cos(w01);
+  sinw01 = sin(w01);
+  alpha1 = sinw01 / (2 * q1);
+);
+
+function applyHighpass() (
+  b01 = (1 + cosw01)/2;
+  b11 = -(1 + cosw01);
+  b21 = (1 + cosw01)/2;
+  a01 = 1 + alpha1;
+  a11 = -2 * cosw01;
+  a21 = 1 - alpha1;
+  b01 /= a01;
+  b11 /= a01;
+  b21 /= a01;
+  a11 /= a01;
+  a21 /= a01;
+
+  ospl0 = this.left;
+  this.left = b01 * this.left + b11 * xl11 + b21 * xl21 - a11 * yl11 - a21 * yl21;
+  xl21 = xl11;
+  xl11 = ospl0;
+  yl21 = yl11;
+  yl11 = this.left;
+
+  ospl1 = this.right;
+  this.right = b01 * this.right + b11 * xr11 + b21 * xr21 - a11 * yr11 - a21 * yr21;
+  xr21 = xr11;
+  xr11 = ospl1;
+  yr21 = yr11;
+  yr11 = this.right;
+);
+
+
+function initHighShelf() (
+  SPN=0;
+  yl_ls=x1l_ls=x2l_ls=y1l_ls=y2l_ls=yr_ls=x1r_ls=x2r_ls=y1r_ls=y2r_ls=0;
+  yl_hs=x1l_hs=x2l_hs=y1l_hs=y2l_hs=yr_hs=x1r_hs=x2r_hs=y1r_hs=y2r_hs=0;
+  
+  
+  sx = 16+slider4*1.20103;
+  cf = floor(exp(sx*log(1.059))*8.17742);
+  freq2 = cf;
+  cf /= srate;
+  boost = -slider5;
+  
+  sa = tan($pi*(cf-0.25));
+  asq = sa*sa;
+  A = 10^(boost/20.0);
+  (boost < 6.0) && (boost > -6.0) ? (
+    F = sqrt(A);
+  ) : (
+    (A > 1.0) ? (
+        F = A/sqrt(2.0);
+      ) : (
+        F = A*sqrt(2.0);
+      );
+  );
+  F2 = F*F;
+  tmp = A*A - F2;
+  abs(tmp) <= SPN ? (
+    gammad = 1.0;
+  ) : (
+    gammad = ((F2-1.0)/tmp)^(0.25);
+  );
+  gamman = sqrt(A)*gammad;
+  gamma2 = gamman*gamman;
+  gam2p1 = 1.0 + gamma2;
+  siggam2 = 2.0*sqrt(2.0)/2.0*gamman;
+  ta0 = gam2p1 + siggam2;
+  ta1 = -2.0*(1.0 - gamma2);
+  ta2 = gam2p1 - siggam2;
+  gamma2 = gammad*gammad;
+  gam2p1 = 1.0 + gamma2;
+  siggam2 = 2.0*sqrt(2.0)/2.0*gammad;
+  tb0 = gam2p1 + siggam2;
+  tb1 = -2.0*(1.0 - gamma2);
+  tb2 = gam2p1 - siggam2;
+  
+  aa1 = sa*ta1;
+  a0 = ta0 + aa1 + asq*ta2;
+  a1 = 2.0*sa*(ta0+ta2)+(1.0+asq)*ta1;
+  a2 = asq*ta0 + aa1 + ta2;
+  
+  ab1 = sa*tb1;
+  b0 = tb0 + ab1 + asq*tb2;
+  b1 = 2.0*sa*(tb0+tb2)+(1.0+asq)*tb1;
+  b2 = asq*tb0 + ab1 + tb2;
+  
+  recipb0 = 1.0/b0;
+  a0 *= recipb0;
+  a1 *= recipb0;
+  a2 *= recipb0;
+  b1 *= recipb0;
+  b2 *= recipb0;
+    
+  gain = 10^(boost/20.0);
+  a0_hs = a0/gain;
+  a1_hs = a1/gain; 
+  a2_hs = a2/gain; 
+  b1_hs = -b1;
+  b2_hs = -b2;
+);
+
+function applyHighShelf() (
+  xl_hs = this.left;
+  xr_hs = this.right;
+   
+  yl_hs = a0_hs*xl_hs + a1_hs*x1l_hs + a2_hs*x2l_hs + b1_hs*y1l_hs + b2_hs*y2l_hs;
+  x2l_hs = x1l_hs;
+  x1l_hs = xl_hs;
+  y2l_hs = y1l_hs;
+  y1l_hs = yl_hs;
+  
+  yr_hs = a0_hs*xr_hs + a1_hs*x1r_hs + a2_hs*x2r_hs + b1_hs*y1r_hs + b2_hs*y2r_hs;
+  x2r_hs = x1r_hs;
+  x1r_hs = xr_hs;
+  y2r_hs = y1r_hs;
+  y1r_hs = yr_hs;
+  
+  this.left = yl_hs;
+  this.right = yr_hs;
+);
+
+initHighpass();
+initHighShelf();
+
+
+@sample
+sample.getSample(spl0, spl1);
+sample.applyHighpass();
+sample.applyHighShelf();
+
+spl0 = sample.left;
+spl1 = sample.right;
+
+
