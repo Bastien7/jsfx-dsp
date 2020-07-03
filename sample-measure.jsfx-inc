@@ -6,15 +6,13 @@ function resetSample() (
   this.average = 1;
 );
 
-function hasSignalToLearn(currentLevel) (
-  currentLevel > 0.0001;
+function hasSignalToLearn(sampleLevel) (
+  sampleLevel > 0.0001;
 );
 
-function learnNewLevel(sample) local(currentLevel) (
-    currentLevel = sample.getAbsoluteVolume();
-
-    this.hasSignalToLearn(currentLevel) ? (
-        this.average = (this.average * this.count + currentLevel) / (this.count + 1);
+function learnNewLevel(sampleLevel) (
+    hasSignalToLearn(sampleLevel) ? (
+        this.average = (this.average * this.count + sampleLevel) / (this.count + 1);
         this.count += 1;
     );
 );

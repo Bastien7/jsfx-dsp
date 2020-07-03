@@ -1,9 +1,12 @@
 //desc: Gain unity receiver
 import basic-util.jsfx-inc
 import sample-measure.jsfx-inc
+import loudness-util.jsfx-inc
 
 in_pin: Left input
 in_pin: Right input
+in_pin: Left input before FX
+in_pin: Right input before FX
 out_pin: Left output
 out_pin: Right output
 
@@ -21,9 +24,10 @@ function setGainSliderValue(ratio) (
 );
 
 
-//short term functions
+//Short term functions
 function initializeShortTermList() local(i) (
   this.shortTermRatioList = createArray(this.SHORT_TERM_RATIO_COUNT);
+  this.nextShortTermRatioIndex = 0;
   loop(this.SHORT_TERM_RATIO_COUNT, this.shortTermRatioList[i] = 1; i += 1;);
 );
 function updateShortTermRatio(ratio) local(i, sum) (
@@ -39,87 +43,89 @@ function updateShortTermRatio(ratio) local(i, sum) (
   this.shortTermRatio = sum / this.SHORT_TERM_RATIO_COUNT;
 );
 
-function getAppliedRatio() (
-  slider3 == 0 ? ((0*this.currentRatio + this.shortTermRatio) / 1) : (this.integratedRatio);
+function getAppliedRatio() local(ratio) (
+    slider3 == 0 ? (
+        ratio = (0*this.currentRatio + this.shortTermRatio) / 1;
+    ) : (
+        ratio = this.integratedRatio;
+    );
+
+    max(0.063, min(15.84, ratio)); //limit ratio to -24/+24dB
 );
 
+function resetShortTermData() (
+    this.initializeShortTermList();
+    this.shortTermRatio = 1;
+    this.previousMode = 0; //Short term mode becomes the current mode
+);
 
 function resetIntegrationData() (
   this.integratedRatio = 1;
   this.ratioCount = 0;
-  this.wasLearning = 1;
+  this.previousMode = 1; //Integration mode becomes the current mode
 );
 
-function addNewRatio(measure) local(a) (
-  _global.sampleEnded = 0;
-
-  this.currentRatio = (_global.gainUnityAverageVolume / measure.average);
+function addNewRatio(measureBeforeFX, measureAfterFX) local(a) (
+  this.currentRatio = (measureBeforeFX.average / measureAfterFX.average);
   this.updateShortTermRatio(this.currentRatio);
   this.integratedRatio = ((this.integratedRatio * this.ratioCount) + this.currentRatio) / (this.ratioCount + 1);
   this.ratioCount += 1;
   setGainSliderValue(this.getAppliedRatio());
 
-  measure.resetSample();
+  measureBeforeFX.resetSample();
+  measureAfterFX.resetSample();
 );
 
 function limitVolume(sample) local(endVolume) (
-  endVolume = (abs(sample.left) + abs(sample.right)) / 2;
-
-  endVolume > 1 ? (
-    sample.left = sample.left / endVolume;
-    sample.right = sample.right / endVolume;
-  );
+    endVolume = abs(sample);
+    endVolume >= 1 ? sample = sample / endVolume;
+    sample;
 );
 
-function applyRatio(sample) local(appliedRatio) (
-  appliedRatio = this.getAppliedRatio();
-  
-  sample.left = sample.left * appliedRatio;
-  sample.right = sample.right * appliedRatio;
-  
-  limitVolume();
+function applyRatio(sample) (
+  sample = this.limitVolume(sample * this.getAppliedRatio());
+  sample;
 );
 
-//variables initialization
-_global.learnDuration = srate;
+
+//Variables initialization
+learnDuration = srate;
 unifier.SHORT_TERM_RATIO_COUNT = 10; //constant
-unifier.wasLearning = 1;
+unifier.previousMode = 1;
 
 unifier.currentRatio = 1;
 unifier.shortTermRatio = 1;
 unifier.integratedRatio = 1;
 unifier.ratioCount = 0;
 
-measure.resetSample();
-_global.sampleStarted = 0;
+measureBeforeFX.resetSample();
+measureAfterFX.resetSample();
 unifier.initializeShortTermList();
 
 
 @slider
-_global.learnDuration = slider2 / 1000 * srate;
+learnDuration = slider2 / 1000 * srate;
 setGainSliderValue(unifier.getAppliedRatio());
-slider3 == 0 ? (wasLearning = 0);
-slider3 == 1 && wasLearning == 0 ? unifier.resetIntegrationData();
+
+//Manage mode changes
+slider3 == 0 && unifier.previousMode == 1 ? unifier.resetShortTermData();
+slider3 == 1 && unifier.previousMode == 0 ? unifier.resetIntegrationData();
 
 
 
 @block
-_global.sampleEnded == 1 /*&& measure.hasSignalToLearn()*/ ? ( //condition removed for practicality, let's see if it's needed
-  unifier.addNewRatio(measure);
+measureBeforeFX.count > learnDuration && measureAfterFX.count > learnDuration ? (
+  unifier.addNewRatio(measureBeforeFX, measureAfterFX);
 );
 
 
 
 @sample
-sample.getSample(spl0, spl1);
+sampleAfterFX.getSample(spl0, spl1);
+sampleBeforeFX.getSample(spl2, spl3);
 
-_global.sampleStarted == 1 && measure.count != 0 ? (
-    measure.resetSample();
-    _global.sampleStarted = 0;
-);
+measureBeforeFX.learnNewLevel(sampleBeforeFX.getAbsoluteVolume());
+measureAfterFX.learnNewLevel(sampleAfterFX.getAbsoluteVolume());
 
-measure.learnNewLevel(sample);
-unifier.applyRatio(sample);
-
-spl0 = sample.left;
-spl1 = sample.right;
+spl0 = unifier.applyRatio(sampleAfterFX.left);
+spl1 = unifier.applyRatio(sampleAfterFX.right);
