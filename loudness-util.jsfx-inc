@@ -15,7 +15,7 @@ function initHighpass() local(freq1, a1, s1, q1, w01, sinw01) (
   this.alpha1 = sinw01 / (2 * q1);
 );
 
-function applyHighpass(sample) local(b01, b11, b21, a01, a11, a21, ospl0, ospl1) (
+function applyHighpass(left, right) local(b01, b11, b21, a01, a11, a21, ospl0, ospl1) (
   b01 = (1 + this.cosw01)/2;
   b11 = -(1 + this.cosw01);
   b21 = (1 + this.cosw01)/2;
@@ -28,19 +28,22 @@ function applyHighpass(sample) local(b01, b11, b21, a01, a11, a21, ospl0, ospl1)
   a11 /= a01;
   a21 /= a01;
 
-  ospl0 = sample.left;
-  sample.left = b01 * sample.left + b11 * this.xl11 + b21 * this.xl21 - a11 * this.yl11 - a21 * this.yl21;
+  ospl0 = left;
+  left = b01 * left + b11 * this.xl11 + b21 * this.xl21 - a11 * this.yl11 - a21 * this.yl21;
   this.xl21 = this.xl11;
   this.xl11 = ospl0;
   this.yl21 = this.yl11;
-  this.yl11 = sample.left;
+  this.yl11 = left;
 
-  ospl1 = sample.right;
-  sample.right = b01 * sample.right + b11 * this.xr11 + b21 * this.xr21 - a11 * this.yr11 - a21 * this.yr21;
+  ospl1 = right;
+  right = b01 * right + b11 * this.xr11 + b21 * this.xr21 - a11 * this.yr11 - a21 * this.yr21;
   this.xr21 = this.xr11;
   this.xr11 = ospl1;
   this.yr21 = this.yr11;
-  this.yr11 = sample.right;
+  this.yr11 = right;
+
+  this..left = left;
+  this..right = right;
 );
 
 
@@ -112,40 +115,29 @@ function initHighShelf() local(SPN, sx, cf, boost, sa, asq, A, F, F2, tmp, gamma
   this.b2_hs = -b2;
 );
 
-function applyHighShelf(sample) local(yl_hs, yr_hs) (
-  yl_hs = this.a0_hs*sample.left + this.a1_hs*this.x1l_hs + this.a2_hs*this.x2l_hs + this.b1_hs*this.y1l_hs + this.b2_hs*this.y2l_hs;
+function applyHighShelf(left, right) local(yl_hs, yr_hs) (
+  yl_hs = this.a0_hs*left + this.a1_hs*this.x1l_hs + this.a2_hs*this.x2l_hs + this.b1_hs*this.y1l_hs + this.b2_hs*this.y2l_hs;
   this.x2l_hs = this.x1l_hs;
-  this.x1l_hs = sample.left;
+  this.x1l_hs = left;
   this.y2l_hs = this.y1l_hs;
   this.y1l_hs = yl_hs;
 
-  yr_hs = this.a0_hs*sample.right + this.a1_hs*this.x1r_hs + this.a2_hs*this.x2r_hs + this.b1_hs*this.y1r_hs + this.b2_hs*this.y2r_hs;
+  yr_hs = this.a0_hs*right + this.a1_hs*this.x1r_hs + this.a2_hs*this.x2r_hs + this.b1_hs*this.y1r_hs + this.b2_hs*this.y2r_hs;
   this.x2r_hs = this.x1r_hs;
-  this.x1r_hs = sample.right;
+  this.x1r_hs = right;
   this.y2r_hs = this.y1r_hs;
   this.y1r_hs = yr_hs;
 
-  sample.left = yl_hs;
-  sample.right = yr_hs;
+  this..left = yl_hs;
+  this..right = yr_hs;
 );
 
 function initLoudnessWeighting() (
-  _highpass.initHighpass();
-  _highShelf.initHighShelf();
+  this._highpass.initHighpass();
+  this._highShelf.initHighShelf();
 );
 
-function applyLoudnessWeighting(sample) (
-  _highpass.applyHighpass(sample);
-  _highShelf.applyHighShelf(sample);
+function applyLoudnessWeighting(left, right) (
+  this._highpass.applyHighpass(left, right);
+  this._highShelf.applyHighShelf(this.left, this.right);
 );
-
-initLoudnessWeighting();
-
-/* DEMO
-@sample
-sample.getSample(spl0, spl1);
-applyLoudnessWeighting(sample);
-
-spl0 = sample.left;
-spl1 = sample.right;
-*/

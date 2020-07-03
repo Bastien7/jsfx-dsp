@@ -12,11 +12,11 @@ function getSample(left, right) (
   this.right = right;
 );
 
-initLoudnessWeighting();
+loudness.initLoudnessWeighting();
 
 @sample
 sample.getSample(spl0, spl1);
-applyLoudnessWeighting(sample);
+loudness.applyLoudnessWeighting(sample.left, sample.right);
 
-spl0 = sample.left;
-spl1 = sample.right;
+spl0 = loudness.left;
+spl1 = loudness.right;

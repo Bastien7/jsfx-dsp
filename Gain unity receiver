@@ -10,11 +10,10 @@ in_pin: Right input before FX
 out_pin: Left output
 out_pin: Right output
 
-//slider1:1<0,1,1>Learning (no/yes)
-slider2:20<5,100,1>Sample duration (ms)
-slider3:0<0,1,1{Short-term,Long-term}>Average mode
+slider1:20<5,100,1>Sample duration (ms)
+slider2:0<0,1,1{Short-term,Integration}>Average mode
+slider3:0<0,1,1{Loudness,RMS}>Detection mode
 slider4:0<-24,24,0.1>Output volume
-
 
 @init
 ext_noinit = 1.0;
@@ -44,7 +43,7 @@ function updateShortTermRatio(ratio) local(i, sum) (
 );
 
 function getAppliedRatio() local(ratio) (
-    slider3 == 0 ? (
+    slider2 == 0 ? (
         ratio = (0*this.currentRatio + this.shortTermRatio) / 1;
     ) : (
         ratio = this.integratedRatio;
@@ -102,14 +101,16 @@ measureBeforeFX.resetSample();
 measureAfterFX.resetSample();
 unifier.initializeShortTermList();
 
+_loudnessBeforeFX.initLoudnessWeighting();
+_loudnessAfterFX.initLoudnessWeighting();
 
 @slider
-learnDuration = slider2 / 1000 * srate;
+learnDuration = slider1 / 1000 * srate;
 setGainSliderValue(unifier.getAppliedRatio());
 
 //Manage mode changes
-slider3 == 0 && unifier.previousMode == 1 ? unifier.resetShortTermData();
-slider3 == 1 && unifier.previousMode == 0 ? unifier.resetIntegrationData();
+slider2 == 0 && unifier.previousMode == 1 ? unifier.resetShortTermData();
+slider2 == 1 && unifier.previousMode == 0 ? unifier.resetIntegrationData();
 
 
 
@@ -122,10 +123,20 @@ measureBeforeFX.count > learnDuration && measureAfterFX.count > learnDuration ? 
 
 @sample
 sampleAfterFX.getSample(spl0, spl1);
-sampleBeforeFX.getSample(spl2, spl3);
 
-measureBeforeFX.learnNewLevel(sampleBeforeFX.getAbsoluteVolume());
-measureAfterFX.learnNewLevel(sampleAfterFX.getAbsoluteVolume());
+slider3 == 0 ? ( //Loudness mode
+  _loudnessBeforeFX.applyLoudnessWeighting(spl2, spl3);
+  _loudnessAfterFX.applyLoudnessWeighting(spl0, spl1);
+  sampleBeforeFXwithLoudness.getSample(_loudnessBeforeFX.left, _loudnessBeforeFX.right);
+  sampleAfterFXwithLoudness.getSample(_loudnessAfterFX.left, _loudnessAfterFX.right);
+  
+  measureBeforeFX.learnNewLevel(sampleBeforeFXwithLoudness.getAbsoluteVolume());
+  measureAfterFX.learnNewLevel(sampleAfterFXwithLoudness.getAbsoluteVolume());
+) : ( //RMS mode
+  sampleBeforeFX.getSample(spl2, spl3);
+  measureBeforeFX.learnNewLevel(sampleBeforeFX.getAbsoluteVolume());
+  measureAfterFX.learnNewLevel(sampleAfterFX.getAbsoluteVolume());
+);
 
 spl0 = unifier.applyRatio(sampleAfterFX.left);
 spl1 = unifier.applyRatio(sampleAfterFX.right);
