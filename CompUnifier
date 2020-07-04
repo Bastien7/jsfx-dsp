@@ -8,15 +8,53 @@ in_pin: Right input
 out_pin: Left output
 out_pin: Right output
 
-slider1:20<0.1,100,0.1>Sample duration (ms)
+slider1:50<0.1,100,0.1>Sample duration (ms)
 slider2:1<0,1,1{Done,Learning}>Learnning phase mode
 slider3:6<0,12,0.1>Peak range
-slider4:-27<-80,0,0.1>Target volume
+slider4:-27<-72,0,0.1>Target volume
 slider5:0<-24,24,0.1>Output volume
 slider6:100<0,100,1>Mix
 
 @init
 ext_noinit = 1.0;
+MINIMUM_VOLUME = 72;
+
+function drawVolume(dataArray, column, r, g, b, a) local(xStart, xEnd, yStart, yEnd, dataIndex, factorColor) (
+  xStart = column-1;
+  xEnd = column;
+  
+  dataIndex = pixelMemoryIterator - (gfx_w-column);
+  dataIndex < 2 ? dataIndex += gfx_w;
+  
+  yStart = dataArray[dataIndex-1];
+  yEnd = dataArray[dataIndex];
+
+  yStart <= 0 ? yStart = gfx_h;
+  yEnd <= 0 ? yEnd = gfx_h;
+  
+  factorColor = .4;
+  gfx_r = r * factorColor * a;
+  gfx_g = g * factorColor * a;
+  gfx_b = b * factorColor * a;
+  gfx_line(xEnd-1, yEnd+1, xEnd-1, gfx_h);
+  
+  gfx_r = r * a;
+  gfx_g = g * a;
+  gfx_b = b * a;
+  gfx_line(xStart, yStart, xEnd, yEnd);
+  gfx_line(xStart, yStart+1, xEnd, yEnd+1);
+);
+
+function drawVisualizer() local(column) (
+  column = gfx_w;
+    
+  loop(gfx_w,
+    column > 0 ? drawVolume(gfxPixelsSample, column, 1, .5, .5, 1);
+  //  column > 0 && gfxPixelsSample[column] != 1 ? gfx_line(gfx_w-column-1, gfxPixelsSample[pixelMemoryIterator - column-1]-1, gfx_w-column, gfxPixelsSample[pixelMemoryIterator - column]-1);
+    column -= 1;
+  );
+);
+
 
 function setGainSliderValue(ratio) (
   slider5 = round(convertToDb(ratio), 1);
@@ -43,7 +81,7 @@ function computeRatio(volume) /*local(upperRange, lowerRange)*/ (
 );
 
 function setTargetVolume(newVolume) (
-  slider4 = round(newVolume, 1);
+  slider4 != newVolume ? slider4 = round(newVolume, 1);
   targetVolume = convertToRatio(newVolume);
   targetVolumeDb = newVolume;
   rangeUpper = newVolume + slider3;
@@ -54,11 +92,12 @@ function setTargetVolume(newVolume) (
 
 //Variables initialization
 learnDuration = srate;
+oldMode = slider2;
 measure.resetSample();
 setTargetVolume(slider4);
 
-gfxPixelsSample = createArrayAndInit(3000, 1);
-gfxPixelsResult = createArrayAndInit(3000, 1);
+gfxPixelsSample = createArrayAndInit(gfx_w, -1);
+gfxPixelsResult = createArrayAndInit(gfx_w, -1);
 
 @slider
 learnDuration = slider1 / 1000 * srate;
@@ -75,12 +114,34 @@ measure.count >= learnDuration ? (
 sample.getSample(spl0, spl1);
 
 measure.learnNewLevel(sample.getAbsoluteVolume());
-measureIntegration.learnNewLevel(sample.getAbsoluteVolume());
+slider2 == 1 ? (
+  oldMode == 0 ? (measureIntegration.resetSample(); oldMode=1);
+  
+  setTargetVolume(convertToDb(measureIntegration.average));
+  measureIntegration.learnNewLevel(sample.getAbsoluteVolume());
+);
+oldMode = slider2;
 
-setTargetVolume(convertToDb(measureIntegration.average));
 
 result.getSample(unifier.getAppliedRatio() * sample.left, unifier.getAppliedRatio() * sample.right);
 resultDb = convertToDb(result.getAbsoluteVolume());
+
+heightSample = spl0 != 0 ? -volumeDb / MINIMUM_VOLUME * gfx_h : -1;
+heightResult = spl0 != 0 ? -resultDb / MINIMUM_VOLUME * gfx_h : -1;
+
+timeCounter == srate/100 ? (
+  gfxPixelsSample[pixelMemoryIterator] = pixelSampleMemory / timeCounter;
+  gfxPixelsResult[pixelMemoryIterator] = pixelResultMemory / timeCounter;
+  pixelSampleMemory = 0;
+  pixelResultMemory = 0;
+  pixelMemoryIterator += 1;
+  pixelMemoryIterator == gfx_w ? pixelMemoryIterator = 1;
+  timeCounter = 0;
+);
+
+pixelSampleMemory += heightSample;
+pixelResultMemory += heightResult;
+timeCounter += 1;
 
 spl0 = result.left;
 spl1 = result.right;
@@ -88,54 +149,36 @@ spl1 = result.right;
 
 
 @gfx 300 600
-//gfx_x=gfx_y=5;
-//gfx_r=gfx_b=1;
-//gfx_g=gfx_a=1;
-heightTarget = -targetVolumeDb / 80 * gfx_h;
-heightUpper = -(rangeUpper) / 80 * gfx_h;
-heightLower = -(rangeLower) / 80 * gfx_h;
-heightGate = -(gateDb) / 80 * gfx_h;
-heightSample = -volumeDb / 80 * gfx_h;
-heightResult = -resultDb / 80 * gfx_h;
+heightTarget = -targetVolumeDb / MINIMUM_VOLUME * gfx_h;
+heightUpper = -(rangeUpper) / MINIMUM_VOLUME * gfx_h;
+heightLower = -(rangeLower) / MINIMUM_VOLUME * gfx_h;
+heightGate = -(gateDb) / MINIMUM_VOLUME * gfx_h;
 
+backgroundColor = .14;
+gfx_r=backgroundColor -.05;
+gfx_g=backgroundColor -.00;
+gfx_b=backgroundColor +.05;
+
+gfx_rect(0, 0, gfx_w, gfx_h);
+
+drawVisualizer();
+
+//target
 gfx_r=0;
-gfx_g=1;
+gfx_g=.9;
 gfx_b=0;
 gfx_line(0, heightTarget, gfx_w, heightTarget);
 
-gfx_r=.5;
-gfx_g=.5;
+//range limits
+gfx_r=.6;
+gfx_g=.6;
 gfx_b=0;
 gfx_line(0, heightUpper, gfx_w, heightUpper);
 gfx_line(0, heightLower, gfx_w, heightLower);
 
-gfx_r=.5;
+/*
+gfx_r=.3;
 gfx_g=0;
 gfx_b=0;
 gfx_line(0, heightGate, gfx_w, heightGate);
-
-
-gfxPixelsSample[iteratorX] = heightSample;
-gfxPixelsResult[iteratorX] = heightResult;
-column = 0;
-
-loop(gfx_w,
-  gfx_r=.8;
-  gfx_g=0;
-  gfx_b=.8;
-  column > 0 && gfxPixelsSample[column] != 1 ? gfx_line(column-1, gfxPixelsSample[column-1], column, gfxPixelsSample[column]);
-  column += 1;
-  column >= gfx_w ? column = 0;
-);
-/*
-loop(gfx_w,
-  gfx_r=.2;
-  gfx_g=0;
-  gfx_b=1;
-  column > 0 ? gfx_line(column-1, gfxPixelsResult[column-1], column, gfxPixelsResult[column]);
-  column += 1;
-);*/
-
-iteratorX += 1;
-iteratorX >= gfx_w ? iteratorX = 0;
-
+*/
