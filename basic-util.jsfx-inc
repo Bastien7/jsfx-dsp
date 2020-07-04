@@ -2,12 +2,19 @@
 
 // manage array pointers allocation
 nextPointer = 1000;
-function createArray(amount) local(result) (
-  result = nextPointer;
+function createArray(amount) local(array) (
+  array = nextPointer;
   nextPointer += amount;
   nextPointer == srate ? nextPointer = 1000;
 
-  result;
+  array;
+);
+function createArrayAndInit(amount, defaultValue) local(array, i) (
+  array = createArray(amount);
+  i = 0;
+  loop(amount, array[i] = defaultValue; i += 1;);
+
+  array;
 );
 
 //Wrap the sample two sides in an "object"
@@ -24,6 +31,9 @@ function getAbsoluteVolume() (
 //conversion function
 function convertToDb(ratio) (
   20 * log10(ratio);
+);
+function convertToRatio(gain) (
+  10^(gain/20);
 );
 function round(value, precision) local(power) (
   power = 10^precision;
