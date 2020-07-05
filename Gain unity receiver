@@ -64,7 +64,7 @@ function resetIntegrationData() (
   this.previousMode = 1; //Integration mode becomes the current mode
 );
 
-function addNewRatio(measureBeforeFX, measureAfterFX) local(a) (
+function addNewRatio(measureBeforeFX, measureAfterFX) (
   this.currentRatio = (measureBeforeFX.average / measureAfterFX.average);
   this.updateShortTermRatio(this.currentRatio);
   this.integratedRatio = ((this.integratedRatio * this.ratioCount) + this.currentRatio) / (this.ratioCount + 1);
@@ -106,7 +106,7 @@ _loudnessAfterFX.initLoudnessWeighting();
 
 @slider
 learnDuration = slider1 / 1000 * srate;
-setGainSliderValue(unifier.getAppliedRatio());
+setGainSliderValue(unifier.getAppliedRatio()); //TODO to remove because useless?
 
 //Manage mode changes
 slider2 == 0 && unifier.previousMode == 1 ? unifier.resetShortTermData();
