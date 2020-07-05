@@ -10,10 +10,11 @@ out_pin: Right output
 
 slider1:50<0.1,100,0.1>Sample duration (ms)
 slider2:1<0,1,1{Done,Learning}>Learnning phase mode
-slider3:6<0,12,0.1>Peak range
-slider4:-27<-72,0,0.1>Target volume
-slider5:0<-24,24,0.1>Output volume
-slider6:100<0,100,1>Mix
+slider3:6<0,12,0.1>Attack
+slider4:6<0,12,0.1>Sustain
+slider5:-27<-72,0,0.1>Target volume
+slider6:0<-24,24,0.1>Output volume
+slider7:100<0,100,1>Mix
 
 @init
 ext_noinit = 1.0;
@@ -50,43 +51,78 @@ function drawVisualizer() local(column) (
     
   loop(gfx_w,
     column > 0 ? drawVolume(gfxPixelsSample, column, 1, .5, .5, 1);
-  //  column > 0 && gfxPixelsSample[column] != 1 ? gfx_line(gfx_w-column-1, gfxPixelsSample[pixelMemoryIterator - column-1]-1, gfx_w-column, gfxPixelsSample[pixelMemoryIterator - column]-1);
     column -= 1;
   );
 );
 
 
 function setGainSliderValue(ratio) (
-  slider5 = round(convertToDb(ratio), 1);
+  slider6 = round(convertRatioToDbGain(ratio), 1);
 );
 
 function getAppliedRatio() (
-    ((100-slider6)/100) * 1 + (slider6/100) * this.ratio;
+    ((100-slider7)/100) * 1 + (slider7/100) * this.ratio;
 );
 
-function computeRatio(volume) /*local(upperRange, lowerRange)*/ (
-    //TODO something wrong around here
-    volumeDb = convertToDb(volume);
-    volumeDb > rangeUpper ? this.ratio = convertToRatio(rangeUpper - volumeDb);
-    volumeDb < rangeLower && volumeDb > gateDb ? this.ratio = convertToRatio(rangeLower - volumeDb);
-    volumeDb < rangeUpper && volumeDb > rangeLower ? this.ratio = 1;
-    
-    change1 = rangeUpper - volumeDb;
-    change2 = rangeLower - volumeDb;
-    //this.ratio = targetVolume / volume;
-    ratioInDb = convertToDb(this.ratio);
-    setGainSliderValue(this.getAppliedRatio());
+function releaseAttackRatio() (
+    this.oldAttackRatio = (2 + this.oldAttackRatio) / 3;
+);
+function releaseSustainRatio() (
+    this.oldSustainRatio = (2 + this.oldSustainRatio) / 3;
+);
+function setNewRatio(oldRatio, newRatio) (
+    this.ratio = (2*oldRatio + newRatio) / 3;
+    //this.ratio = newRatio;
+);
 
+function computeRatio(measureVolume) local(newRatio) (
+    volumeDb = convertRmsToDb(measureVolume);
+    oldRatio = this.ratio;
+    newRatio = targetVolume / measureVolume;
+  
+    volumeDb > targetVolumeDb ? (
+        volumeDb < rangeUpper ? ( //limit attack
+            compAttack +=1;
+            this.setNewRatio(this.oldAttackRatio, newRatio);
+            this.oldAttackRatio = newRatio;
+        ) : ( //too much attack
+            compAttackOutRange +=1;
+            this.ratio = this.oldAttackRatio; //keep the higher attack ratio
+        );
+        
+        this.releaseSustainRatio();
+    );
+    
+    volumeDb < targetVolumeDb ? (
+        volumeDb > rangeLower ? ( //add sustain
+            compSustain +=1;
+            this.setNewRatio(this.oldSustainRatio, newRatio);
+            this.oldSustainRatio = newRatio;
+        ) : volumeDb > gateDb ? ( //not enough sustain
+            compSustainOutRange +=1;
+            this.ratio = this.oldSustainRatio; //keep the higher sustain ratio
+        ) : ( //let the volume rest in peace for silence moments
+            compSilent += 1;
+            this.releaseSustainRatio();
+            this.ratio = 1;
+        );
+        
+        this.releaseAttackRatio();
+    );
+
+    //this.ratio = (2*this.ratio + newRatio) / 3;
+    //this.ratio = newRatio;
+    setGainSliderValue(this.getAppliedRatio());
     measure.resetSample();
 );
 
 function setTargetVolume(newVolume) (
-  slider4 != newVolume ? slider4 = round(newVolume, 1);
-  targetVolume = convertToRatio(newVolume);
+  slider5 != newVolume ? slider5 = round(newVolume, 1);
+  targetVolume = convertDbLevelToRatio(newVolume);
   targetVolumeDb = newVolume;
   rangeUpper = newVolume + slider3;
-  rangeLower = newVolume - slider3;
-  gateDb = rangeLower - 6;
+  rangeLower = newVolume - slider4;
+  gateDb = rangeLower - slider4;
 );
 
 
@@ -94,14 +130,16 @@ function setTargetVolume(newVolume) (
 learnDuration = srate;
 oldMode = slider2;
 measure.resetSample();
-setTargetVolume(slider4);
+setTargetVolume(slider5);
+unifier.oldAttackRatio = 1;
+unifier.oldSustainRatio = 1;
 
 gfxPixelsSample = createArrayAndInit(gfx_w, -1);
-gfxPixelsResult = createArrayAndInit(gfx_w, -1);
+//gfxPixelsResult = createArrayAndInit(gfx_w, -1);
 
 @slider
 learnDuration = slider1 / 1000 * srate;
-setTargetVolume(slider4);
+setTargetVolume(slider5);
 
  
 @block
@@ -117,21 +155,18 @@ measure.learnNewLevel(sample.getAbsoluteVolume());
 slider2 == 1 ? (
   oldMode == 0 ? (measureIntegration.resetSample(); oldMode=1);
   
-  setTargetVolume(convertToDb(measureIntegration.average));
+  setTargetVolume(convertRmsToDb(measureIntegration.average));
   measureIntegration.learnNewLevel(sample.getAbsoluteVolume());
 );
 oldMode = slider2;
 
 
 result.getSample(unifier.getAppliedRatio() * sample.left, unifier.getAppliedRatio() * sample.right);
-resultDb = convertToDb(result.getAbsoluteVolume());
-
-heightSample = spl0 != 0 ? -volumeDb / MINIMUM_VOLUME * gfx_h : -1;
-heightResult = spl0 != 0 ? -resultDb / MINIMUM_VOLUME * gfx_h : -1;
+resultDb = convertRmsToDb(result.getAbsoluteVolume());
 
 timeCounter == srate/100 ? (
   gfxPixelsSample[pixelMemoryIterator] = pixelSampleMemory / timeCounter;
-  gfxPixelsResult[pixelMemoryIterator] = pixelResultMemory / timeCounter;
+  //gfxPixelsResult[pixelMemoryIterator] = pixelResultMemory / timeCounter;
   pixelSampleMemory = 0;
   pixelResultMemory = 0;
   pixelMemoryIterator += 1;
@@ -139,8 +174,8 @@ timeCounter == srate/100 ? (
   timeCounter = 0;
 );
 
-pixelSampleMemory += heightSample;
-pixelResultMemory += heightResult;
+pixelSampleMemory += spl0 != 0 ? -volumeDb / MINIMUM_VOLUME * gfx_h : -1;
+//pixelResultMemory += spl0 != 0 ? -resultDb / MINIMUM_VOLUME * gfx_h : -1;
 timeCounter += 1;
 
 spl0 = result.left;
@@ -154,7 +189,7 @@ heightUpper = -(rangeUpper) / MINIMUM_VOLUME * gfx_h;
 heightLower = -(rangeLower) / MINIMUM_VOLUME * gfx_h;
 heightGate = -(gateDb) / MINIMUM_VOLUME * gfx_h;
 
-backgroundColor = .14;
+backgroundColor = .12;
 gfx_r=backgroundColor -.05;
 gfx_g=backgroundColor -.00;
 gfx_b=backgroundColor +.05;
@@ -163,12 +198,6 @@ gfx_rect(0, 0, gfx_w, gfx_h);
 
 drawVisualizer();
 
-//target
-gfx_r=0;
-gfx_g=.9;
-gfx_b=0;
-gfx_line(0, heightTarget, gfx_w, heightTarget);
-
 //range limits
 gfx_r=.6;
 gfx_g=.6;
@@ -176,9 +205,17 @@ gfx_b=0;
 gfx_line(0, heightUpper, gfx_w, heightUpper);
 gfx_line(0, heightLower, gfx_w, heightLower);
 
-/*
-gfx_r=.3;
+gfx_x=gfx_y=0;
+gfx_blurto(gfx_w, gfx_h);
+
+//gate
+gfx_r=.6;
 gfx_g=0;
 gfx_b=0;
 gfx_line(0, heightGate, gfx_w, heightGate);
-*/
+
+//target
+gfx_r=0;
+gfx_g=.9;
+gfx_b=0;
+gfx_line(0, heightTarget, gfx_w, heightTarget);

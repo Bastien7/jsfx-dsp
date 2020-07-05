@@ -29,11 +29,17 @@ function getAbsoluteVolume() (
 );
 
 //conversion function
-function convertToDb(ratio) (
+function convertRatioToDbGain(ratio) (
   20 * log10(ratio);
 );
-function convertToRatio(gain) (
+function convertRmsToDb(ratio) (
+  convertRatioToDbGain(ratio) + 5; //I don't yet know why it's needed... Maybe because of a specific signal level referential?
+);
+function convertDbGainToRatio(gain) (
   10^(gain/20);
+);
+function convertDbLevelToRatio(gain) (
+  convertDbGainToRatio(gain-5);
 );
 function round(value, precision) local(power) (
   power = 10^precision;

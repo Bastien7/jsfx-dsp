@@ -19,7 +19,7 @@ slider4:0<-24,24,0.1>Output volume
 ext_noinit = 1.0;
 
 function setGainSliderValue(ratio) (
-  slider4 = round(convertToDb(ratio), 1);
+  slider4 = round(convertRatioToDb(ratio), 1);
 );
 
 
