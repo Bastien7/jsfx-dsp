@@ -9,12 +9,13 @@ out_pin: Left output
 out_pin: Right output
 
 slider1:50<0.1,100,0.1>Sample duration (ms)
-slider2:1<0,1,1{Done,Learning}>Learnning phase mode
+slider2:1<0,1,1{Ready,Learning}>Learning phase mode
 slider3:6<0,12,0.1>Attack
 slider4:6<0,12,0.1>Sustain
 slider5:-27<-72,0,0.1>Target volume
 slider6:0<-24,24,0.1>Output volume
 slider7:100<0,100,1>Mix
+slider12:.5<.01, 1, .01>Gain difference limit
 
 @init
 ext_noinit = 1.0;
@@ -70,21 +71,73 @@ function releaseAttackRatio() (
 function releaseSustainRatio() (
     this.oldSustainRatio = (2 + this.oldSustainRatio) / 3;
 );
-function setNewRatio(oldRatio, newRatio) (
-    this.ratio = (2*oldRatio + newRatio) / 3;
-    //this.ratio = newRatio;
+function setNewRatio(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb) (
+    oldRatioDb = convertRatioToDbGain(oldRatio);
+    newRatioDb = convertRatioToDbGain(newRatio);
+    gainDifferenceDb = oldRatioDb - newRatioDb;
+    differenceLimitDb = slider12;
+
+    abs(gainDifferenceDb) > differenceLimitDb ? (
+      newRatio = 1;
+      gainDifferenceDb = gainDifferenceDb * (differenceLimitDb / abs(gainDifferenceDb));
+    );
+    
+    this.ratio = convertDbGainToRatio(oldRatioDb - gainDifferenceDb);
+);
+
+function setNewRatio2(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb, i) (
+    oldRatioDb = convertRatioToDbGain(oldRatio);
+    newRatioDb = convertRatioToDbGain(newRatio);
+        
+    this.ratioMemory[ratioMemoryIterator] = convertRatioToDbGain(newRatioDb);
+    ratioMemoryIterator += 1;
+    ratioMemoryIterator == RATIO_MEMORY_LENGTH ? ratioMemoryIterator = 0;
+        
+    ratioSumAbsoluteDb = ratioSumDb = i = 0;
+    ratioMaximum = -99;
+    ratioMinimum = 99;
+    
+    ratio0 = this.ratioMemory[0];
+    ratio1 = this.ratioMemory[1];
+    ratio2 = this.ratioMemory[2];
+    ratio3 = this.ratioMemory[3];
+    ratio4 = this.ratioMemory[4];
+    ratio5 = this.ratioMemory[5];
+    ratio6 = this.ratioMemory[6];
+    ratio7 = this.ratioMemory[7];
+    ratio8 = this.ratioMemory[8];
+    ratio9 = this.ratioMemory[9];
+
+    loop(RATIO_MEMORY_LENGTH, 
+      ratioSumDb += this.ratioMemory[i];
+      ratioSumAbsoluteDb += abs(this.ratioMemory[i]);
+      ratioMinimum = min(ratioMinimum, this.ratioMemory[i]);
+      ratioMaximum = max(ratioMaximum, this.ratioMemory[i]);
+      i += 1;
+      hello += this.ratioMemory[0];
+    );
+    ratioAverageDb = abs(ratioSumDb / RATIO_MEMORY_LENGTH); 
+    
+    ratioVarianceSum = 0;
+    i = 0;
+    loop(RATIO_MEMORY_LENGTH, 
+      ratioVarianceSum += abs(ratioAverageDb - this.ratioMemory[i]);
+      i += 1;
+    );
+    ratioVariance = ratioVarianceSum / RATIO_MEMORY_LENGTH;
+    
+    this.ratio = newRatio;
 );
 
 function computeRatio(measureVolume) local(newRatio) (
     volumeDb = convertRmsToDb(measureVolume);
-    oldRatio = this.ratio;
     newRatio = targetVolume / measureVolume;
   
     volumeDb > targetVolumeDb ? (
         volumeDb < rangeUpper ? ( //limit attack
             compAttack +=1;
-            this.setNewRatio(this.oldAttackRatio, newRatio);
-            this.oldAttackRatio = newRatio;
+            this.setNewRatio2(this.oldAttackRatio, newRatio);
+            this.oldAttackRatio = this.ratio;
         ) : ( //too much attack
             compAttackOutRange +=1;
             this.ratio = this.oldAttackRatio; //keep the higher attack ratio
@@ -96,8 +149,8 @@ function computeRatio(measureVolume) local(newRatio) (
     volumeDb < targetVolumeDb ? (
         volumeDb > rangeLower ? ( //add sustain
             compSustain +=1;
-            this.setNewRatio(this.oldSustainRatio, newRatio);
-            this.oldSustainRatio = newRatio;
+            this.setNewRatio2(this.oldSustainRatio, newRatio);
+            this.oldSustainRatio = this.ratio;
         ) : volumeDb > gateDb ? ( //not enough sustain
             compSustainOutRange +=1;
             this.ratio = this.oldSustainRatio; //keep the higher sustain ratio
@@ -111,7 +164,6 @@ function computeRatio(measureVolume) local(newRatio) (
     );
 
     //this.ratio = (2*this.ratio + newRatio) / 3;
-    //this.ratio = newRatio;
     setGainSliderValue(this.getAppliedRatio());
     measure.resetSample();
 );
@@ -134,12 +186,21 @@ setTargetVolume(slider5);
 unifier.oldAttackRatio = 1;
 unifier.oldSustainRatio = 1;
 
+RATIO_MEMORY_LENGTH = 30;
+unifier.ratioMemory = createArrayAndInit(RATIO_MEMORY_LENGTH, 0);
+unifier.ratioMemoryIterator = 0;
+
 gfxPixelsSample = createArrayAndInit(gfx_w, -1);
 //gfxPixelsResult = createArrayAndInit(gfx_w, -1);
 
 @slider
 learnDuration = slider1 / 1000 * srate;
 setTargetVolume(slider5);
+
+slider2 == oldMode && slider2 == 0 ? ( //parameters changes, output measure has to be restarted
+    slider2 = 1;
+    measureOutputIntegration.resetSample();
+);
 
  
 @block
@@ -153,10 +214,20 @@ sample.getSample(spl0, spl1);
 
 measure.learnNewLevel(sample.getAbsoluteVolume());
 slider2 == 1 ? (
-  oldMode == 0 ? (measureIntegration.resetSample(); oldMode=1);
-  
-  setTargetVolume(convertRmsToDb(measureIntegration.average));
-  measureIntegration.learnNewLevel(sample.getAbsoluteVolume());
+    oldMode == 0 ? (
+        measureInputIntegration.count / srate < 10 ? measureInputIntegration.resetSample();
+        measureOutputIntegration.resetSample();
+        oldMode=1;
+    );
+
+    measureOutputIntegration.count / srate >= 10 ? ( //TODO add more condition on input/output integration stabilization
+        slider2 = 0;
+        differenceToCompensate = convertRatioToDbGain(measureInputIntegration.average / measureOutputIntegration.average);
+    ) : (
+        setTargetVolume(convertRmsToDb(measureInputIntegration.average));
+        measureInputIntegration.learnNewLevel(sample.getAbsoluteVolume());
+        measureInputIntegration.count / srate >= 10 ? measureOutputIntegration.learnNewLevel(result.getAbsoluteVolume()); //learn if input is ready
+    );
 );
 oldMode = slider2;
 

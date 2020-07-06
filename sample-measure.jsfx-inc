@@ -7,7 +7,7 @@ function resetSample() (
 );
 
 function hasSignalToLearn(sampleLevel) (
-  sampleLevel > 0.0001;
+  sampleLevel > 0.001; // -55dB threshold
 );
 
 function learnNewLevel(sampleLevel) (
