@@ -68,12 +68,6 @@ function getAppliedRatio() local(compensationRatio) (
     ((100-slider7)/100) * 1 + (slider7/100) * this.ratio * 1;
 );
 
-function releaseAttackRatio() (
-    this.oldAttackRatio = (2 + this.oldAttackRatio) / 3;
-);
-function releaseSustainRatio() (
-    this.oldSustainRatio = (2 + this.oldSustainRatio) / 3;
-);
 function setNewRatio(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb) (
     oldRatioDb = convertRatioToDbGain(oldRatio);
     newRatioDb = convertRatioToDbGain(newRatio);
@@ -84,100 +78,94 @@ function setNewRatio(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb) (
       newRatio = 1;
       gainDifferenceDb = gainDifferenceDb * (differenceLimitDb / abs(gainDifferenceDb));
     );
-    
+
     this.ratio = convertDbGainToRatio(oldRatioDb - gainDifferenceDb);
 );
 
-function setNewRatio2(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb, i) (
-    oldRatioDb = convertRatioToDbGain(oldRatio);
-    newRatioDb = convertRatioToDbGain(newRatio);
-        
-    this.ratioMemory[ratioMemoryIterator] = newRatioDb;
-    ratioMemoryIterator += 1;
-    ratioMemoryIterator == RATIO_MEMORY_LENGTH ? ratioMemoryIterator = 0;
 
-    ratio0 = this.ratioMemory[0];
-    ratio1 = this.ratioMemory[1];
-    ratio2 = this.ratioMemory[2];
-    ratio3 = this.ratioMemory[3];
-    ratio4 = this.ratioMemory[4];
-    ratio5 = this.ratioMemory[5];
-    /*ratio6 = this.ratioMemory[6];
-    ratio7 = this.ratioMemory[7];
-    ratio8 = this.ratioMemory[8];
-    ratio9 = this.ratioMemory[9];
-    ratio10 = this.ratioMemory[10];
-    ratio11 = this.ratioMemory[11];
-    ratio12 = this.ratioMemory[12];
-    ratio13 = this.ratioMemory[13];
-    ratio14 = this.ratioMemory[14];
-    ratio15 = this.ratioMemory[15];
-    ratio16 = this.ratioMemory[16];
-    ratio17 = this.ratioMemory[17];
-    ratio18 = this.ratioMemory[18];
-    ratio19 = this.ratioMemory[19];*/
-    i = 0;
-    ratioMaximum = -99;
-    ratioMinimum = 99;
-    loop(RATIO_MEMORY_LENGTH,
-      ratioMinimum = min(ratioMinimum, this.ratioMemory[i]);
-      ratioMaximum = max(ratioMaximum, this.ratioMemory[i]);
-      i += 1;
-    );
 
-    this.averageLol = average(this.ratioMemory, RATIO_MEMORY_LENGTH);
-    
-    standardDeviation = standardDeviation(this.ratioMemory, RATIO_MEMORY_LENGTH);
-    standardDeviation > .5 ? (
-        this.ratio = convertDbGainToRatio(this.averageLol);
+function storeRatioInMemoryAttack(ratio) (
+    this.ratioMemoryAttack[this.ratioMemoryAttackIterator] = ratio;
+    this.ratioMemoryAttackIterator += 1;
+    this.ratioMemoryAttackIterator == RATIO_MEMORY_LENGTH ? this.ratioMemoryAttackIterator = 0;
+);
+function storeRatioInMemorySustain(ratio) (
+    this.ratioMemorySustain[this.ratioMemorySustainIterator] = ratio;
+    this.ratioMemorySustainIterator += 1;
+    this.ratioMemorySustainIterator == RATIO_MEMORY_LENGTH ? this.ratioMemorySustainIterator = 0;
+);
+
+function releaseAttackRatio(average) ( //TODO reimplement this with new memories
+    //this.oldAttackRatio = (2 + this.oldAttackRatio) / 3;
+    this.storeRatioInMemoryAttack((2 + average) / 3);
+);
+function releaseSustainRatio(average) ( //TODO reimplement this with new memories
+    //this.oldSustainRatio = (2 + this.oldSustainRatio) / 3;
+    this.storeRatioInMemorySustain((2 + average) / 3);
+);
+
+function setNewRatio2(averageRatio, standardDeviation, newRatio) local(differenceLimitDb, i) (
+    standardDeviation > .2 ? (
+        this.ratio = convertDbGainToRatio(averageRatio);
         this.ratioAntiSaturationMode += 1;
     ) : (
         this.ratio = newRatio;
         this.ratioAntiSaturationModeOff += 1;
     );
-    this.ratio1 = this.averageLol;
-    this.ratio2 = newRatioDb;
-    
-    //this.ratio = convertDbGainToRatio(this.averageLol);
-    //this.ratio = newRatio;
 );
 
-function computeRatio(measureVolume) local(newRatio, differenceDb) (
+function computeRatio(measureVolume) local(newRatio, differenceDb, ratioMemoryAttackAverage, ratioMemorySustainAverage) (
     volumeDb = convertRmsToDb(measureVolume);
     differenceDb = targetVolumeDb - volumeDb;
+    oldRatioDb = convertRatioToDbGain(this.ratio);
     newRatio = convertDbGainToRatio(differenceDb);
+    newRatioDb = convertRatioToDbGain(newRatio);
+
+    ratioMemoryAttackAverage = average(this.ratioMemoryAttack, RATIO_MEMORY_LENGTH);
+    ratioMemorySustainAverage = average(this.ratioMemorySustain, RATIO_MEMORY_LENGTH);
+
+    ratioMemoryAttack1 = this.ratioMemoryAttack[0];
+    ratioMemoryAttack2 = this.ratioMemoryAttack[1];
+    ratioMemoryAttack3 = this.ratioMemoryAttack[2];
+    ratioMemoryAttack4 = this.ratioMemoryAttack[3];
+    ratioMemoryAttack5 = this.ratioMemoryAttack[4];
+
+    ratioMemorySustain0 = this.ratioMemorySustain[0];
+    ratioMemorySustain1 = this.ratioMemorySustain[1];
+    ratioMemorySustain2 = this.ratioMemorySustain[2];
+    ratioMemorySustain3 = this.ratioMemorySustain[3];
+    ratioMemorySustain4 = this.ratioMemorySustain[4];
     
     volumeDb > targetVolumeDb ? (
+      ratioAttack += 1;
         volumeDb < rangeUpper ? ( //limit attack
-            compAttack +=1;
-            this.setNewRatio2(this.oldAttackRatio, newRatio);
-            this.oldAttackRatio = this.ratio;
+            this.setNewRatio2(ratioMemoryAttackAverage, standardDeviation(this.ratioMemoryAttack, RATIO_MEMORY_LENGTH), newRatio);
+            this.storeRatioInMemoryAttack(newRatioDb);
         ) : ( //too much attack
-            compAttackOutRange +=1;
-            this.ratio = this.oldAttackRatio; //keep the higher attack ratio
+            this.storeRatioInMemoryAttack(this.ratioMemoryAttack[this.ratioMemoryAttackIterator]);
         );
         
-        this.releaseSustainRatio();
+        this.releaseSustainRatio(ratioMemorySustainAverage);
     );
     
     volumeDb < targetVolumeDb ? (
+      ratioAttack2 += 1;
         volumeDb > rangeLower ? ( //add sustain
-            compSustain +=1;
-            this.setNewRatio2(this.oldSustainRatio, newRatio);
-            this.oldSustainRatio = this.ratio;
+            this.setNewRatio2(ratioMemorySustainAverage, standardDeviation(this.ratioMemorySustain, RATIO_MEMORY_LENGTH), newRatio);
+            this.storeRatioInMemorySustain(newRatioDb);
         ) : volumeDb > gateDb ? ( //not enough sustain
-            compSustainOutRange +=1;
-            this.ratio = this.oldSustainRatio; //keep the higher sustain ratio
+            this.storeRatioInMemorySustain(this.ratioMemorySustain[this.ratioMemorySustainIterator]);
         ) : ( //let the volume rest in peace for silence moments
-            compSilent += 1;
-            this.releaseSustainRatio();
+            this.releaseSustainRatio(ratioMemorySustainAverage);
             this.ratio = 1;
         );
         
-        this.releaseAttackRatio();
+        this.releaseAttackRatio(ratioMemoryAttackAverage);
     );
 
-    //volumeDb == targetVolumeDb ? this.ratio = oldRatio; //TODO take care if reuse, because of the now undefined oldRatio variable
+    volumeDb == targetVolumeDb ? this.ratio = (ratioMemoryAttackAverage + ratioMemorySustainAverage) / 2;
+
+    this.ratio = oldRatioDb + abs(oldRatioDb - )
 
 //    this.ratio = (2*this.ratio + newRatio) / 3;
     setGainSliderValue(this.getAppliedRatio());
@@ -203,8 +191,10 @@ unifier.oldAttackRatio = 1;
 unifier.oldSustainRatio = 1;
 
 RATIO_MEMORY_LENGTH = 5;
-unifier.ratioMemory = createArrayAndInit(RATIO_MEMORY_LENGTH, 0);
-unifier.ratioMemoryIterator = 0;
+unifier.ratioMemoryAttack = createArrayAndInit(RATIO_MEMORY_LENGTH, 0);
+unifier.ratioMemoryAttackIterator = 0;
+unifier.ratioMemorySustain = createArrayAndInit(RATIO_MEMORY_LENGTH, 0);
+unifier.ratioMemorySustainIterator = 0;
 
 gfxPixelsSample = createArrayAndInit(gfx_w, -1);
 //gfxPixelsResult = createArrayAndInit(gfx_w, -1);
