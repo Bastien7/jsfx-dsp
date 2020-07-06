@@ -17,6 +17,7 @@ function createArrayAndInit(amount, defaultValue) local(array, i) (
   array;
 );
 
+
 //Wrap the sample two sides in an "object"
 function getSample(left, right) (
   this.left = left;
@@ -27,6 +28,7 @@ function getSample(left, right) (
 function getAbsoluteVolume() (
   (abs(this.left) + abs(this.right)) / 2;
 );
+
 
 //conversion function
 function convertRatioToDbGain(ratio) (
@@ -44,4 +46,18 @@ function convertDbLevelToRatio(gain) (
 function round(value, precision) local(power) (
   power = 10^precision;
   ceil(value * power) / power;
+);
+
+
+//Math tools
+function standardDeviation(array, length) local(sum, average, differenceSum, i) (
+    sum = i = 0;
+
+    loop(length, sum += array[i]; i += 1);
+    average = sum / length;
+
+    differenceSum = i = 0;
+    loop(length, differenceSum += (average - array[i])^2; i += 1);
+
+    sqrt(differenceSum / length);
 );
