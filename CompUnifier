@@ -39,7 +39,7 @@ function drawVolume(dataArray, column, r, g, b, a) local(xStart, xEnd, yStart, y
   gfx_g = g * factorColor * a;
   gfx_b = b * factorColor * a;
   gfx_line(xEnd-1, yEnd+1, xEnd-1, gfx_h);
-  
+
   gfx_r = r * a;
   gfx_g = g * a;
   gfx_b = b * a;
@@ -88,13 +88,8 @@ function setNewRatio(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb) (
     this.ratio = convertDbGainToRatio(oldRatioDb - gainDifferenceDb);
 );
 
-function setNewRatio2(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb, i) (
-    oldRatioDb = convertRatioToDbGain(oldRatio);
+function getNextRatioInAcceleration(newRatio) local(differenceLimitDb, i) (
     newRatioDb = convertRatioToDbGain(newRatio);
-        
-    this.ratioMemory[ratioMemoryIterator] = newRatioDb;
-    ratioMemoryIterator += 1;
-    ratioMemoryIterator == RATIO_MEMORY_LENGTH ? ratioMemoryIterator = 0;
 
     ratio0 = this.ratioMemory[0];
     ratio1 = this.ratioMemory[1];
@@ -102,44 +97,32 @@ function setNewRatio2(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb, i
     ratio3 = this.ratioMemory[3];
     ratio4 = this.ratioMemory[4];
     ratio5 = this.ratioMemory[5];
-    /*ratio6 = this.ratioMemory[6];
-    ratio7 = this.ratioMemory[7];
-    ratio8 = this.ratioMemory[8];
-    ratio9 = this.ratioMemory[9];
-    ratio10 = this.ratioMemory[10];
-    ratio11 = this.ratioMemory[11];
-    ratio12 = this.ratioMemory[12];
-    ratio13 = this.ratioMemory[13];
-    ratio14 = this.ratioMemory[14];
-    ratio15 = this.ratioMemory[15];
-    ratio16 = this.ratioMemory[16];
-    ratio17 = this.ratioMemory[17];
-    ratio18 = this.ratioMemory[18];
-    ratio19 = this.ratioMemory[19];*/
-    i = 0;
-    ratioMaximum = -99;
-    ratioMinimum = 99;
-    loop(RATIO_MEMORY_LENGTH,
-      ratioMinimum = min(ratioMinimum, this.ratioMemory[i]);
-      ratioMaximum = max(ratioMaximum, this.ratioMemory[i]);
-      i += 1;
-    );
 
-    this.averageLol = average(this.ratioMemory, RATIO_MEMORY_LENGTH);
+    acceleration = acceleration(this.ratioMemory, RATIO_MEMORY_LENGTH, ratioMemoryIterator);
+    previousIterator = -1;
+    previousIterator == -1 ? previousIterator = RATIO_MEMORY_LENGTH - 1;
+    nextRatioDbInAcceleration = this.ratioMemory[previousIterator] + acceleration;
+
+    this.ratioMemory[ratioMemoryIterator] = newRatioDb;
+    ratioMemoryIterator += 1;
+    ratioMemoryIterator == RATIO_MEMORY_LENGTH ? ratioMemoryIterator = 0;
+
+    result = convertDbGainToRatio(nextRatioDbInAcceleration);
+
+  zzacceleration = acceleration;
+    zzstandardDeviation = standardDeviation(this.ratioMemory, RATIO_MEMORY_LENGTH);
+    zzdeviationByAcceleration = zzstandardDeviation / abs(acceleration);
     
-    standardDeviation = standardDeviation(this.ratioMemory, RATIO_MEMORY_LENGTH);
-    standardDeviation > .5 ? (
-        this.ratio = convertDbGainToRatio(this.averageLol);
+    zzdeviationByAcceleration > .2 ? (
+        averageRatioDb = average(this.ratioMemory, RATIO_MEMORY_LENGTH);
+        result = convertDbGainToRatio(averageRatioDb);
         this.ratioAntiSaturationMode += 1;
     ) : (
-        this.ratio = newRatio;
         this.ratioAntiSaturationModeOff += 1;
     );
-    this.ratio1 = this.averageLol;
-    this.ratio2 = newRatioDb;
-    
-    //this.ratio = convertDbGainToRatio(this.averageLol);
-    //this.ratio = newRatio;
+
+
+    result;
 );
 
 function computeRatio(measureVolume) local(newRatio, differenceDb) (
@@ -150,36 +133,34 @@ function computeRatio(measureVolume) local(newRatio, differenceDb) (
     volumeDb > targetVolumeDb ? (
         volumeDb < rangeUpper ? ( //limit attack
             compAttack +=1;
-            this.setNewRatio2(this.oldAttackRatio, newRatio);
-            this.oldAttackRatio = this.ratio;
+            newRatio = this.getNextRatioInAcceleration(newRatio);
         ) : ( //too much attack
             compAttackOutRange +=1;
-            this.ratio = this.oldAttackRatio; //keep the higher attack ratio
+            newRatio = this.ratio; //keep the higher attack ratio
         );
-        
-        this.releaseSustainRatio();
     );
     
     volumeDb < targetVolumeDb ? (
         volumeDb > rangeLower ? ( //add sustain
             compSustain +=1;
-            this.setNewRatio2(this.oldSustainRatio, newRatio);
-            this.oldSustainRatio = this.ratio;
+            newRatio = this.getNextRatioInAcceleration(newRatio);
         ) : volumeDb > gateDb ? ( //not enough sustain
             compSustainOutRange +=1;
-            this.ratio = this.oldSustainRatio; //keep the higher sustain ratio
+            newRatio = this.ratio; //keep the higher sustain ratio
         ) : ( //let the volume rest in peace for silence moments
             compSilent += 1;
-            this.releaseSustainRatio();
-            this.ratio = 1;
+            newRatio = 1;
+            //fuck the memory!
+            this.ratioMemory = createArrayAndInit(RATIO_MEMORY_LENGTH, 0);
+            this.ratioMemoryIterator = 0;
         );
-        
-        this.releaseAttackRatio();
     );
 
     //volumeDb == targetVolumeDb ? this.ratio = oldRatio; //TODO take care if reuse, because of the now undefined oldRatio variable
 
 //    this.ratio = (2*this.ratio + newRatio) / 3;
+
+    this.ratio = newRatio;
     setGainSliderValue(this.getAppliedRatio());
     measure.resetSample();
 );
@@ -209,6 +190,46 @@ unifier.ratioMemoryIterator = 0;
 gfxPixelsSample = createArrayAndInit(gfx_w, -1);
 //gfxPixelsResult = createArrayAndInit(gfx_w, -1);
 
+zztest1 = createArray(5);
+zztest1[0] = 0;
+zztest1[1] = 10;
+zztest1[2] = 20;
+zztest1[3] = 30;
+zztest1[4] = 40;
+zztest1standardDeviation = standardDeviation(zztest1, 5);
+zztest1acceleration = acceleration(zztest1, 5, 0);
+zztest1Result = zztest1standardDeviation / zztest1acceleration;
+
+zztest2 = createArray(5);
+zztest2[0] = 0;
+zztest2[1] = -20;
+zztest2[2] = 10;
+zztest2[3] = -20;
+zztest2[4] = 10;
+zztest2standardDeviation = standardDeviation(zztest2, 5);
+zztest2acceleration = acceleration(zztest2, 5, 0);
+zztest2Result = zztest2standardDeviation / zztest2acceleration;
+
+
+zztest3 = createArray(5);
+zztest3[0] = 0;
+zztest3[1] = 1;
+zztest3[2] = 2;
+zztest3[3] = 3;
+zztest3[4] = 4;
+zztest3standardDeviation = standardDeviation(zztest3, 5);
+zztest3acceleration = acceleration(zztest3, 5, 0);
+zztest3Result = zztest3standardDeviation / zztest3acceleration;
+
+zztest4 = createArray(5);
+zztest4[0] = 0;
+zztest4[1] = -2;
+zztest4[2] = 1;
+zztest4[3] = -2;
+zztest4[4] = 1;
+zztest4standardDeviation = standardDeviation(zztest4, 5);
+zztest4acceleration = acceleration(zztest4, 5, 0);
+zztest4Result = zztest4standardDeviation / zztest4acceleration;
 
 
 @slider

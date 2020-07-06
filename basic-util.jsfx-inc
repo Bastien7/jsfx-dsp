@@ -67,3 +67,21 @@ function standardDeviation(array, length) local(average, differenceSum, i) (
 
     sqrt(differenceSum / length);
 );
+
+function acceleration(array, length, startIndex) local(sum, i1, i2) (
+    sum = 0;
+    i1 = startIndex;
+    i2 = startIndex + 1;
+
+    loop(length - 1,
+        i1 == length ? i1 = 0;
+        i2 == length ? i2 = 0;
+
+        sum += (array[i2] - array[i1]);
+
+        i1 += 1;
+        i2 += 1;
+    );
+
+    sum / (length - 1);
+);
