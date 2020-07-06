@@ -50,11 +50,17 @@ function round(value, precision) local(power) (
 
 
 //Math tools
-function standardDeviation(array, length) local(sum, average, differenceSum, i) (
+function average(array, length) local(sum, average, differenceSum, i) (
     sum = i = 0;
 
     loop(length, sum += array[i]; i += 1);
     average = sum / length;
+
+    average;
+);
+
+function standardDeviation(array, length) local(average, differenceSum, i) (
+    average = average(array, length);
 
     differenceSum = i = 0;
     loop(length, differenceSum += (average - array[i])^2; i += 1);

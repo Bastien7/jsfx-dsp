@@ -12,14 +12,14 @@ slider1:50<0.1,100,0.1>Sample duration (ms)
 slider2:1<0,1,1{Ready,Learning}>Learning phase mode
 slider3:6<0,12,0.1>Attack
 slider4:6<0,12,0.1>Sustain
-slider5:-27<-72,0,0.1>Target volume
+slider5:-27<-54,0,0.1>Target volume
 slider6:0<-24,24,0.1>Output volume
 slider7:100<0,100,1>Mix
 slider12:.5<.01, 1, .01>Gain difference limit
 
 @init
 ext_noinit = 1.0;
-MINIMUM_VOLUME = 72;
+MINIMUM_VOLUME = 54;
 
 function drawVolume(dataArray, column, r, g, b, a) local(xStart, xEnd, yStart, yEnd, dataIndex, factorColor) (
   xStart = column-1;
@@ -61,8 +61,11 @@ function setGainSliderValue(ratio) (
   slider6 = round(convertRatioToDbGain(ratio), 1);
 );
 
-function getAppliedRatio() (
-    ((100-slider7)/100) * 1 + (slider7/100) * this.ratio;
+function getAppliedRatio() local(compensationRatio) (
+    //compensate the volume difference between input and output after compression
+    //compensationRatio = measureOutputIntegration.count / srate > 10 ? measureInputIntegration.average / measureOutputIntegration.average : 1;
+
+    ((100-slider7)/100) * 1 + (slider7/100) * this.ratio * 1;
 );
 
 function releaseAttackRatio() (
@@ -89,50 +92,61 @@ function setNewRatio2(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb, i
     oldRatioDb = convertRatioToDbGain(oldRatio);
     newRatioDb = convertRatioToDbGain(newRatio);
         
-    this.ratioMemory[ratioMemoryIterator] = convertRatioToDbGain(newRatioDb);
+    this.ratioMemory[ratioMemoryIterator] = newRatioDb;
     ratioMemoryIterator += 1;
     ratioMemoryIterator == RATIO_MEMORY_LENGTH ? ratioMemoryIterator = 0;
-        
-    ratioSumAbsoluteDb = ratioSumDb = i = 0;
-    ratioMaximum = -99;
-    ratioMinimum = 99;
-    
+
     ratio0 = this.ratioMemory[0];
     ratio1 = this.ratioMemory[1];
     ratio2 = this.ratioMemory[2];
     ratio3 = this.ratioMemory[3];
     ratio4 = this.ratioMemory[4];
     ratio5 = this.ratioMemory[5];
-    ratio6 = this.ratioMemory[6];
+    /*ratio6 = this.ratioMemory[6];
     ratio7 = this.ratioMemory[7];
     ratio8 = this.ratioMemory[8];
     ratio9 = this.ratioMemory[9];
-
-    loop(RATIO_MEMORY_LENGTH, 
-      ratioSumDb += this.ratioMemory[i];
-      ratioSumAbsoluteDb += abs(this.ratioMemory[i]);
+    ratio10 = this.ratioMemory[10];
+    ratio11 = this.ratioMemory[11];
+    ratio12 = this.ratioMemory[12];
+    ratio13 = this.ratioMemory[13];
+    ratio14 = this.ratioMemory[14];
+    ratio15 = this.ratioMemory[15];
+    ratio16 = this.ratioMemory[16];
+    ratio17 = this.ratioMemory[17];
+    ratio18 = this.ratioMemory[18];
+    ratio19 = this.ratioMemory[19];*/
+    i = 0;
+    ratioMaximum = -99;
+    ratioMinimum = 99;
+    loop(RATIO_MEMORY_LENGTH,
       ratioMinimum = min(ratioMinimum, this.ratioMemory[i]);
       ratioMaximum = max(ratioMaximum, this.ratioMemory[i]);
       i += 1;
-      hello += this.ratioMemory[0];
     );
-    ratioAverageDb = abs(ratioSumDb / RATIO_MEMORY_LENGTH); 
+
+    this.averageLol = average(this.ratioMemory, RATIO_MEMORY_LENGTH);
     
-    ratioVarianceSum = 0;
-    i = 0;
-    loop(RATIO_MEMORY_LENGTH, 
-      ratioVarianceSum += abs(ratioAverageDb - this.ratioMemory[i]);
-      i += 1;
+    standardDeviation = standardDeviation(this.ratioMemory, RATIO_MEMORY_LENGTH);
+    standardDeviation > .5 ? (
+        this.ratio = convertDbGainToRatio(this.averageLol);
+        this.ratioAntiSaturationMode += 1;
+    ) : (
+        this.ratio = newRatio;
+        this.ratioAntiSaturationModeOff += 1;
     );
-    ratioVariance = ratioVarianceSum / RATIO_MEMORY_LENGTH;
+    this.ratio1 = this.averageLol;
+    this.ratio2 = newRatioDb;
     
-    this.ratio = newRatio;
+    //this.ratio = convertDbGainToRatio(this.averageLol);
+    //this.ratio = newRatio;
 );
 
-function computeRatio(measureVolume) local(newRatio) (
+function computeRatio(measureVolume) local(newRatio, differenceDb) (
     volumeDb = convertRmsToDb(measureVolume);
-    newRatio = targetVolume / measureVolume;
-  
+    differenceDb = targetVolumeDb - volumeDb;
+    newRatio = convertDbGainToRatio(differenceDb);
+    
     volumeDb > targetVolumeDb ? (
         volumeDb < rangeUpper ? ( //limit attack
             compAttack +=1;
@@ -163,7 +177,9 @@ function computeRatio(measureVolume) local(newRatio) (
         this.releaseAttackRatio();
     );
 
-    //this.ratio = (2*this.ratio + newRatio) / 3;
+    //volumeDb == targetVolumeDb ? this.ratio = oldRatio; //TODO take care if reuse, because of the now undefined oldRatio variable
+
+//    this.ratio = (2*this.ratio + newRatio) / 3;
     setGainSliderValue(this.getAppliedRatio());
     measure.resetSample();
 );
@@ -186,12 +202,14 @@ setTargetVolume(slider5);
 unifier.oldAttackRatio = 1;
 unifier.oldSustainRatio = 1;
 
-RATIO_MEMORY_LENGTH = 30;
+RATIO_MEMORY_LENGTH = 5;
 unifier.ratioMemory = createArrayAndInit(RATIO_MEMORY_LENGTH, 0);
 unifier.ratioMemoryIterator = 0;
 
 gfxPixelsSample = createArrayAndInit(gfx_w, -1);
 //gfxPixelsResult = createArrayAndInit(gfx_w, -1);
+
+
 
 @slider
 learnDuration = slider1 / 1000 * srate;
@@ -248,6 +266,7 @@ timeCounter == srate/100 ? (
 pixelSampleMemory += spl0 != 0 ? -volumeDb / MINIMUM_VOLUME * gfx_h : -1;
 //pixelResultMemory += spl0 != 0 ? -resultDb / MINIMUM_VOLUME * gfx_h : -1;
 timeCounter += 1;
+
 
 spl0 = result.left;
 spl1 = result.right;
