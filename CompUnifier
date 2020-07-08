@@ -74,6 +74,13 @@ function releaseAttackRatio() (
 function releaseSustainRatio() (
     this.oldSustainRatio = (2 + this.oldSustainRatio) / 3;
 );
+function resetRatioMemory() (
+    this.ratioMemory = createArrayAndInit(RATIO_MEMORY_LENGTH, 0);
+    this.ratioMemoryIterator = 0;
+    this.ratio = 1;
+    setGainSliderValue(this.getAppliedRatio());
+);
+
 function setNewRatio(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb) (
     oldRatioDb = convertRatioToDbGain(oldRatio);
     newRatioDb = convertRatioToDbGain(newRatio);
@@ -88,10 +95,10 @@ function setNewRatio(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb) (
     this.ratio = convertDbGainToRatio(oldRatioDb - gainDifferenceDb);
 );
 
-function setNewRatio2(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb, i) (
-    oldRatioDb = convertRatioToDbGain(oldRatio);
+function setNewRatio2(oldRatio, newRatio) local(oldRatioDb, newRatioDb, differenceLimitDb, i, gainDifferenceDb) (
+    oldRatioDb = convertRatioToDbGain(this.ratio);
     newRatioDb = convertRatioToDbGain(newRatio);
-        
+
     this.ratioMemory[ratioMemoryIterator] = newRatioDb;
     ratioMemoryIterator += 1;
     ratioMemoryIterator == RATIO_MEMORY_LENGTH ? ratioMemoryIterator = 0;
@@ -135,11 +142,14 @@ function setNewRatio2(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb, i
         this.ratio = newRatio;
         this.ratioAntiSaturationModeOff += 1;
     );
-    this.ratio1 = this.averageLol;
-    this.ratio2 = newRatioDb;
-    
-    //this.ratio = convertDbGainToRatio(this.averageLol);
-    //this.ratio = newRatio;
+
+    gainDifferenceDb = oldRatioDb - convertRatioToDbGain(this.ratio);
+    differenceLimitDb = slider12;
+    abs(gainDifferenceDb) > differenceLimitDb ? (
+      gainDifferenceDb = gainDifferenceDb * (differenceLimitDb / abs(gainDifferenceDb));
+    );
+
+    this.ratio = convertDbGainToRatio(oldRatioDb - gainDifferenceDb);
 );
 
 function computeRatio(measureVolume) local(newRatio, differenceDb) (
@@ -172,6 +182,7 @@ function computeRatio(measureVolume) local(newRatio, differenceDb) (
             compSilent += 1;
             this.releaseSustainRatio();
             this.ratio = 1;
+            this.resetRatioMemory();
         );
         
         this.releaseAttackRatio();
@@ -203,8 +214,7 @@ unifier.oldAttackRatio = 1;
 unifier.oldSustainRatio = 1;
 
 RATIO_MEMORY_LENGTH = 5;
-unifier.ratioMemory = createArrayAndInit(RATIO_MEMORY_LENGTH, 0);
-unifier.ratioMemoryIterator = 0;
+unifier.resetRatioMemory();
 
 gfxPixelsSample = createArrayAndInit(gfx_w, -1);
 //gfxPixelsResult = createArrayAndInit(gfx_w, -1);
@@ -225,6 +235,9 @@ slider2 == oldMode && slider2 == 0 ? ( //parameters changes, output measure has 
 measure.count >= learnDuration ? (
   unifier.computeRatio(measure.average);
 );
+
+noSignal == srate/200 ? (resetMemory += 1; unifier.resetRatioMemory());
+sample.getAbsoluteVolume() < 0.001 ? noSignal+=1 : noSignal = 0;
 
 
 @sample
