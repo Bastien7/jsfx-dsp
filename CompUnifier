@@ -21,20 +21,17 @@ slider12:.5<.01, 1, .01>Gain difference limit
 @init
 ext_noinit = 1.0;
 
-function drawVolume(dataArray, column, r, g, b, a, fillGraph, bigLine) local(xStart, xEnd, yStart, yEnd, dataIndex, factorColor) (
+function drawVolume(data, dataBefore, column, r, g, b, a, fillGraphAndBigLine) local(xStart, xEnd, yStart, yEnd, factorColor) (
   xStart = column-1;
   xEnd = column;
-  
-  dataIndex = this.memoryIterator - (gfx_w-column);
-  dataIndex < 2 ? dataIndex += gfx_w;
-  
-  yStart = dataArray[dataIndex-1];
-  yEnd = dataArray[dataIndex];
+
+  yStart = dataBefore;
+  yEnd = data;
 
   yStart <= 0 ? yStart = gfx_h;
   yEnd <= 0 ? yEnd = gfx_h;
 
-  fillGraph == 1 ? (
+  fillGraphAndBigLine == 1 ? (
       factorColor = .4;
       gfx_r = r * factorColor * a;
       gfx_g = g * factorColor * a;
@@ -46,23 +43,44 @@ function drawVolume(dataArray, column, r, g, b, a, fillGraph, bigLine) local(xSt
   gfx_g = g * a;
   gfx_b = b * a;
   gfx_line(xStart, yStart, xEnd, yEnd);
-  bigLine ? gfx_line(xStart, yStart+1, xEnd, yEnd+1);
+  fillGraphAndBigLine ? gfx_line(xStart, yStart+1, xEnd, yEnd+1);
 );
 
-function drawVisualizer() local(column) (
+function drawVolumeDifference(inputVolume, outputVolume, inputVolumeBefore, outputVolumeBefore, column, r, g, b, a) local(y) (
+    gfx_r = r * a;
+    gfx_g = g * a;
+    gfx_b = b * a;
+    gfx_line(column, inputVolume, column, outputVolume);
+    gfx_line(column-1, inputVolumeBefore, column, outputVolumeBefore-1);
+);
+
+function drawVisualizer() local(column, dataIndex) (
   column = gfx_w;
     
   loop(gfx_w,
-    column > 0 ? visualizer.drawVolume(this.inputMemory, column, 1, .5, .5, 1, 1, 1);
-    column > 0 ? visualizer.drawVolume(this.ratioMemory, column, 0, .5, 1, 1, 0, 0);
+    dataIndex = this.memoryIterator - (gfx_w-1-column);
+    dataIndex < 1 ? dataIndex += VISUALIZER_MEMORY_LENGTH - 1;
+
+    column >= 0 ? (
+        //visualizer.drawVolumeDifference(this.inputMemory[dataIndex], this.outputMemory[dataIndex-1], this.inputMemory[dataIndex], this.outputMemory[dataIndex-1], column, 1, 1, 1, .35);
+        visualizer.drawVolume(this.inputMemory[dataIndex], this.inputMemory[dataIndex-1], column, 1, .5, .5, 1, 0);
+        //visualizer.drawVolume(this.outputMemory[dataIndex], this.outputMemory[dataIndex-1], column, .5, 1, 1, 1, 0);
+        visualizer.drawVolume(this.ratioMemory[dataIndex], this.ratioMemory[dataIndex-1], column, 0, .5, 1, 1, 0);
+    );
     column -= 1;
   );
 );
 
-function addSignalLevels(targetVolumeDb, inputVolume, currentRatio) (
-    this.inputMemory[this.memoryIterator] = (-convertRmsToDb(inputVolume) / MINIMUM_VOLUME * gfx_h);
-    this.ratioMemory[this.memoryIterator] = (-(targetVolumeDb + convertRatioToDbGain(currentRatio)) / MINIMUM_VOLUME * gfx_h);
+function addSignalLevels(targetVolumeDb, inputVolume, currentRatio) local(inputVolumeDb) (
+    inputVolumeDb = convertRmsToDb(inputVolume);
+    currentRatioDb = convertRatioToDbGain(currentRatio);
+
+    this.inputMemory[this.memoryIterator] = (-inputVolumeDb / MINIMUM_VOLUME * gfx_h);
+    this.ratioMemory[this.memoryIterator] = (-(targetVolumeDb + currentRatioDb) / MINIMUM_VOLUME * gfx_h);
+    this.outputMemory[this.memoryIterator] = (-(inputVolumeDb + currentRatioDb) / MINIMUM_VOLUME * gfx_h);
+
     this.memoryIterator += 1;
+    this.memoryIterator == VISUALIZER_MEMORY_LENGTH ? this.memoryIterator = 0;
 );
 
 
@@ -155,8 +173,10 @@ unifier.ratioMemory = createArrayAndInit(RATIO_MEMORY_LENGTH, 0);
 unifier.ratioMemoryIterator = 0;
 
 
-visualizer.inputMemory = createArrayAndInit(2000, -1);
-visualizer.ratioMemory = createArrayAndInit(2000, -1);
+VISUALIZER_MEMORY_LENGTH = 2000;
+visualizer.inputMemory = createArrayAndInit(VISUALIZER_MEMORY_LENGTH, -1);
+visualizer.ratioMemory = createArrayAndInit(VISUALIZER_MEMORY_LENGTH, -1);
+visualizer.outputMemory = createArrayAndInit(VISUALIZER_MEMORY_LENGTH, -1);
 visualizer.memoryIterator = 0;
 visualizer.signalCounter = 0; //for data/frame synchronization
 
@@ -179,10 +199,12 @@ measureAverage = measure.average;
 measure.count >= learnDuration ? (
     unifier.computeRatio(measureAverage);
     measure.resetSample();
-    //visualizer.signalCounter = 0;
 );
 
-signalDetected == 0 ? unifier.ratio = 1;
+signalDetected == 0 ? (
+    unifier.ratio = 1;
+    setGainSliderValue(this.getAppliedRatio());
+);
 
 visualizer.signalCounter >= srate/100 ? (
     visualizer.addSignalLevels(targetVolumeDb, signalDetected == 1 ? measureAverage : -1, unifier.getAppliedRatio());
