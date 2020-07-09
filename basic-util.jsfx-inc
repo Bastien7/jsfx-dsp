@@ -5,7 +5,7 @@ nextPointer = 1000;
 function createArray(amount) local(array) (
   array = nextPointer;
   nextPointer += amount;
-  nextPointer == srate ? nextPointer = 1000;
+  //nextPointer == srate ? nextPointer = 1000;
 
   array;
 );

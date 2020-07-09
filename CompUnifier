@@ -17,15 +17,15 @@ slider6:0<-24,24,0.1>Output volume
 slider7:100<0,100,1>Mix
 slider12:.5<.01, 1, .01>Gain difference limit
 
+
 @init
 ext_noinit = 1.0;
-MINIMUM_VOLUME = 54;
 
-function drawVolume(dataArray, column, r, g, b, a) local(xStart, xEnd, yStart, yEnd, dataIndex, factorColor) (
+function drawVolume(dataArray, column, r, g, b, a, fillGraph, bigLine) local(xStart, xEnd, yStart, yEnd, dataIndex, factorColor) (
   xStart = column-1;
   xEnd = column;
   
-  dataIndex = pixelMemoryIterator - (gfx_w-column);
+  dataIndex = this.memoryIterator - (gfx_w-column);
   dataIndex < 2 ? dataIndex += gfx_w;
   
   yStart = dataArray[dataIndex-1];
@@ -33,33 +33,76 @@ function drawVolume(dataArray, column, r, g, b, a) local(xStart, xEnd, yStart, y
 
   yStart <= 0 ? yStart = gfx_h;
   yEnd <= 0 ? yEnd = gfx_h;
-  
-  factorColor = .4;
-  gfx_r = r * factorColor * a;
-  gfx_g = g * factorColor * a;
-  gfx_b = b * factorColor * a;
-  gfx_line(xEnd-1, yEnd+1, xEnd-1, gfx_h);
-  
+
+  fillGraph == 1 ? (
+      factorColor = .4;
+      gfx_r = r * factorColor * a;
+      gfx_g = g * factorColor * a;
+      gfx_b = b * factorColor * a;
+      gfx_line(xEnd-1, yEnd+1, xEnd-1, gfx_h);
+  );
+
   gfx_r = r * a;
   gfx_g = g * a;
   gfx_b = b * a;
   gfx_line(xStart, yStart, xEnd, yEnd);
-  gfx_line(xStart, yStart+1, xEnd, yEnd+1);
+  bigLine ? gfx_line(xStart, yStart+1, xEnd, yEnd+1);
 );
 
 function drawVisualizer() local(column) (
   column = gfx_w;
     
   loop(gfx_w,
-    column > 0 ? drawVolume(gfxPixelsSample, column, 1, .5, .5, 1);
+    column > 0 ? visualizer.drawVolume(this.inputMemory, column, 1, .5, .5, 1, 1, 1);
+    column > 0 ? visualizer.drawVolume(this.ratioMemory, column, 0, .5, 1, 1, 0, 0);
     column -= 1;
   );
 );
+
+function addSignalLevels(targetVolumeDb, inputVolume, currentRatio) (
+    this.inputMemory[this.memoryIterator] = (-convertRmsToDb(inputVolume) / MINIMUM_VOLUME * gfx_h);
+    this.ratioMemory[this.memoryIterator] = (-(targetVolumeDb + convertRatioToDbGain(currentRatio)) / MINIMUM_VOLUME * gfx_h);
+    this.memoryIterator += 1;
+);
+
 
 
 function setGainSliderValue(ratio) (
   slider6 = round(convertRatioToDbGain(ratio), 1);
 );
+
+function setTargetVolume(newVolumeDb) (
+  slider5 != newVolumeDb ? slider5 = round(newVolumeDb, 1);
+  targetVolume = convertDbLevelToRatio(newVolumeDb);
+  targetVolumeDb = newVolumeDb;
+  rangeUpperDb = newVolumeDb + slider3;
+  rangeLowerDb = newVolumeDb - slider4;
+  gateDb = rangeLowerDb - slider4;
+);
+
+
+
+function autoLearnInputOutput() (
+    slider2 == 1 ? (
+        oldMode == 0 ? (
+            measureInputIntegration.count / srate < 10 ? measureInputIntegration.resetSample();
+            measureOutputIntegration.resetSample();
+            oldMode=1;
+        );
+
+        measureOutputIntegration.count / srate >= 10 ? ( //TODO add more condition on input/output integration stabilization
+            slider2 = 0;
+            differenceToCompensate = convertRatioToDbGain(measureInputIntegration.average / measureOutputIntegration.average);
+        ) : (
+            setTargetVolume(convertRmsToDb(measureInputIntegration.average));
+            measureInputIntegration.learnNewLevel(sample.getAbsoluteVolume());
+            measureInputIntegration.count / srate >= 10 ? measureOutputIntegration.learnNewLevel(result.getAbsoluteVolume()); //learn if input is ready
+        );
+    );
+    oldMode = slider2;
+);
+
+
 
 function getAppliedRatio() local(compensationRatio) (
     //compensate the volume difference between input and output after compression
@@ -68,133 +111,38 @@ function getAppliedRatio() local(compensationRatio) (
     ((100-slider7)/100) * 1 + (slider7/100) * this.ratio * 1;
 );
 
-function releaseAttackRatio() (
-    this.oldAttackRatio = (2 + this.oldAttackRatio) / 3;
-);
-function releaseSustainRatio() (
-    this.oldSustainRatio = (2 + this.oldSustainRatio) / 3;
-);
-function setNewRatio(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb) (
-    oldRatioDb = convertRatioToDbGain(oldRatio);
-    newRatioDb = convertRatioToDbGain(newRatio);
-    gainDifferenceDb = oldRatioDb - newRatioDb;
-    differenceLimitDb = slider12;
-
-    abs(gainDifferenceDb) > differenceLimitDb ? (
-      newRatio = 1;
-      gainDifferenceDb = gainDifferenceDb * (differenceLimitDb / abs(gainDifferenceDb));
-    );
-    
-    this.ratio = convertDbGainToRatio(oldRatioDb - gainDifferenceDb);
-);
-
-function setNewRatio2(oldRatio, newRatio) local(oldRatioDb, differenceLimitDb, i) (
-    oldRatioDb = convertRatioToDbGain(oldRatio);
-    newRatioDb = convertRatioToDbGain(newRatio);
-        
-    this.ratioMemory[ratioMemoryIterator] = newRatioDb;
-    ratioMemoryIterator += 1;
-    ratioMemoryIterator == RATIO_MEMORY_LENGTH ? ratioMemoryIterator = 0;
-
-    ratio0 = this.ratioMemory[0];
-    ratio1 = this.ratioMemory[1];
-    ratio2 = this.ratioMemory[2];
-    ratio3 = this.ratioMemory[3];
-    ratio4 = this.ratioMemory[4];
-    ratio5 = this.ratioMemory[5];
-    /*ratio6 = this.ratioMemory[6];
-    ratio7 = this.ratioMemory[7];
-    ratio8 = this.ratioMemory[8];
-    ratio9 = this.ratioMemory[9];
-    ratio10 = this.ratioMemory[10];
-    ratio11 = this.ratioMemory[11];
-    ratio12 = this.ratioMemory[12];
-    ratio13 = this.ratioMemory[13];
-    ratio14 = this.ratioMemory[14];
-    ratio15 = this.ratioMemory[15];
-    ratio16 = this.ratioMemory[16];
-    ratio17 = this.ratioMemory[17];
-    ratio18 = this.ratioMemory[18];
-    ratio19 = this.ratioMemory[19];*/
-    i = 0;
-    ratioMaximum = -99;
-    ratioMinimum = 99;
-    loop(RATIO_MEMORY_LENGTH,
-      ratioMinimum = min(ratioMinimum, this.ratioMemory[i]);
-      ratioMaximum = max(ratioMaximum, this.ratioMemory[i]);
-      i += 1;
-    );
-
-    this.averageLol = average(this.ratioMemory, RATIO_MEMORY_LENGTH);
-    
-    standardDeviation = standardDeviation(this.ratioMemory, RATIO_MEMORY_LENGTH);
-    standardDeviation > .5 ? (
-        this.ratio = convertDbGainToRatio(this.averageLol);
-        this.ratioAntiSaturationMode += 1;
-    ) : (
-        this.ratio = newRatio;
-        this.ratioAntiSaturationModeOff += 1;
-    );
-    this.ratio1 = this.averageLol;
-    this.ratio2 = newRatioDb;
-    
-    //this.ratio = convertDbGainToRatio(this.averageLol);
-    //this.ratio = newRatio;
-);
-
-function computeRatio(measureVolume) local(newRatio, differenceDb) (
+function computeRatio(measureVolume) local(newRatio, differenceDb, newRatio) (
     volumeDb = convertRmsToDb(measureVolume);
     differenceDb = targetVolumeDb - volumeDb;
     newRatio = convertDbGainToRatio(differenceDb);
     
     volumeDb > targetVolumeDb ? (
-        volumeDb < rangeUpper ? ( //limit attack
+        volumeDb < rangeUpperDb ? ( //limit attack
             compAttack +=1;
-            this.setNewRatio2(this.oldAttackRatio, newRatio);
-            this.oldAttackRatio = this.ratio;
         ) : ( //too much attack
             compAttackOutRange +=1;
-            this.ratio = this.oldAttackRatio; //keep the higher attack ratio
         );
-        
-        this.releaseSustainRatio();
     );
     
     volumeDb < targetVolumeDb ? (
-        volumeDb > rangeLower ? ( //add sustain
+        volumeDb > rangeLowerDb ? ( //add sustain
             compSustain +=1;
-            this.setNewRatio2(this.oldSustainRatio, newRatio);
-            this.oldSustainRatio = this.ratio;
         ) : volumeDb > gateDb ? ( //not enough sustain
             compSustainOutRange +=1;
-            this.ratio = this.oldSustainRatio; //keep the higher sustain ratio
         ) : ( //let the volume rest in peace for silence moments
             compSilent += 1;
-            this.releaseSustainRatio();
-            this.ratio = 1;
         );
-        
-        this.releaseAttackRatio();
     );
 
-    //volumeDb == targetVolumeDb ? this.ratio = oldRatio; //TODO take care if reuse, because of the now undefined oldRatio variable
-
-//    this.ratio = (2*this.ratio + newRatio) / 3;
+    //this.ratio = (2*this.ratio + newRatio) / 3;
+    this.ratio = newRatio;
     setGainSliderValue(this.getAppliedRatio());
-    measure.resetSample();
 );
 
-function setTargetVolume(newVolume) (
-  slider5 != newVolume ? slider5 = round(newVolume, 1);
-  targetVolume = convertDbLevelToRatio(newVolume);
-  targetVolumeDb = newVolume;
-  rangeUpper = newVolume + slider3;
-  rangeLower = newVolume - slider4;
-  gateDb = rangeLower - slider4;
-);
 
 
 //Variables initialization
+MINIMUM_VOLUME = 54;
 learnDuration = srate;
 oldMode = slider2;
 measure.resetSample();
@@ -206,66 +154,56 @@ RATIO_MEMORY_LENGTH = 5;
 unifier.ratioMemory = createArrayAndInit(RATIO_MEMORY_LENGTH, 0);
 unifier.ratioMemoryIterator = 0;
 
-gfxPixelsSample = createArrayAndInit(gfx_w, -1);
-//gfxPixelsResult = createArrayAndInit(gfx_w, -1);
 
+visualizer.inputMemory = createArrayAndInit(2000, -1);
+visualizer.ratioMemory = createArrayAndInit(2000, -1);
+visualizer.memoryIterator = 0;
+visualizer.signalCounter = 0; //for data/frame synchronization
 
 
 @slider
 learnDuration = slider1 / 1000 * srate;
 setTargetVolume(slider5);
 
+/*
 slider2 == oldMode && slider2 == 0 ? ( //parameters changes, output measure has to be restarted
     slider2 = 1;
     measureOutputIntegration.resetSample();
-);
+);*/
+
 
  
 @block
+measureAverage = measure.average;
+
 measure.count >= learnDuration ? (
-  unifier.computeRatio(measure.average);
+    unifier.computeRatio(measureAverage);
+    measure.resetSample();
+    //visualizer.signalCounter = 0;
 );
+
+signalDetected == 0 ? unifier.ratio = 1;
+
+visualizer.signalCounter >= srate/100 ? (
+    visualizer.addSignalLevels(targetVolumeDb, signalDetected == 1 ? measureAverage : -1, unifier.getAppliedRatio());
+    visualizer.signalCounter = 0;
+);
+
+
 
 
 @sample
 sample.getSample(spl0, spl1);
 
-measure.learnNewLevel(sample.getAbsoluteVolume());
-slider2 == 1 ? (
-    oldMode == 0 ? (
-        measureInputIntegration.count / srate < 10 ? measureInputIntegration.resetSample();
-        measureOutputIntegration.resetSample();
-        oldMode=1;
-    );
-
-    measureOutputIntegration.count / srate >= 10 ? ( //TODO add more condition on input/output integration stabilization
-        slider2 = 0;
-        differenceToCompensate = convertRatioToDbGain(measureInputIntegration.average / measureOutputIntegration.average);
-    ) : (
-        setTargetVolume(convertRmsToDb(measureInputIntegration.average));
-        measureInputIntegration.learnNewLevel(sample.getAbsoluteVolume());
-        measureInputIntegration.count / srate >= 10 ? measureOutputIntegration.learnNewLevel(result.getAbsoluteVolume()); //learn if input is ready
-    );
-);
-oldMode = slider2;
+signalDetected = measure.learnNewLevel(sample.getAbsoluteVolume());
+visualizer.signalCounter += 1;
+autoLearnInputOutput();
 
 
 result.getSample(unifier.getAppliedRatio() * sample.left, unifier.getAppliedRatio() * sample.right);
 resultDb = convertRmsToDb(result.getAbsoluteVolume());
 
-timeCounter == srate/100 ? (
-  gfxPixelsSample[pixelMemoryIterator] = pixelSampleMemory / timeCounter;
-  //gfxPixelsResult[pixelMemoryIterator] = pixelResultMemory / timeCounter;
-  pixelSampleMemory = 0;
-  pixelResultMemory = 0;
-  pixelMemoryIterator += 1;
-  pixelMemoryIterator == gfx_w ? pixelMemoryIterator = 1;
-  timeCounter = 0;
-);
 
-pixelSampleMemory += spl0 != 0 ? -volumeDb / MINIMUM_VOLUME * gfx_h : -1;
-//pixelResultMemory += spl0 != 0 ? -resultDb / MINIMUM_VOLUME * gfx_h : -1;
-timeCounter += 1;
 
 
 spl0 = result.left;
@@ -273,20 +211,32 @@ spl1 = result.right;
 
 
 
+
+
+
+
+
+
+
+
 @gfx 300 600
 heightTarget = -targetVolumeDb / MINIMUM_VOLUME * gfx_h;
-heightUpper = -(rangeUpper) / MINIMUM_VOLUME * gfx_h;
-heightLower = -(rangeLower) / MINIMUM_VOLUME * gfx_h;
+heightUpper = -(rangeUpperDb) / MINIMUM_VOLUME * gfx_h;
+heightLower = -(rangeLowerDb) / MINIMUM_VOLUME * gfx_h;
 heightGate = -(gateDb) / MINIMUM_VOLUME * gfx_h;
 
+//background
 backgroundColor = .12;
 gfx_r=backgroundColor -.05;
 gfx_g=backgroundColor -.00;
 gfx_b=backgroundColor +.05;
-
 gfx_rect(0, 0, gfx_w, gfx_h);
 
-drawVisualizer();
+visualizer.drawVisualizer();
+
+//gfx_x=gfx_y=0;
+//gfx_blurto(gfx_w, gfx_h);
+
 
 //range limits
 gfx_r=.6;
@@ -294,9 +244,6 @@ gfx_g=.6;
 gfx_b=0;
 gfx_line(0, heightUpper, gfx_w, heightUpper);
 gfx_line(0, heightLower, gfx_w, heightLower);
-
-gfx_x=gfx_y=0;
-gfx_blurto(gfx_w, gfx_h);
 
 //gate
 gfx_r=.6;

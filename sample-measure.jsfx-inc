@@ -10,9 +10,12 @@ function hasSignalToLearn(sampleLevel) (
   sampleLevel > 0.001; // -55dB threshold
 );
 
-function learnNewLevel(sampleLevel) (
+function learnNewLevel(sampleLevel) local(signalDetected) (
     hasSignalToLearn(sampleLevel) ? (
         this.average = (this.average * this.count + sampleLevel) / (this.count + 1);
         this.count += 1;
-    );
+        signalDetected = 1;
+    ) : signalDetected = 0;
+
+    signalDetected;
 );
