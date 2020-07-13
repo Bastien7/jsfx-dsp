@@ -2,19 +2,23 @@
 
 // manage array pointers allocation
 nextPointer = 1000;
-function createArray(amount) local(array) (
+function createArray(length) local(array) (
   array = nextPointer;
-  nextPointer += amount;
+  nextPointer += length;
   //nextPointer == srate ? nextPointer = 1000;
 
   array;
 );
-function createArrayAndInit(amount, defaultValue) local(array, i) (
-  array = createArray(amount);
+function createArrayAndInit(length, defaultValue) local(array, i) (
+  array = createArray(length);
   i = 0;
-  loop(amount, array[i] = defaultValue; i += 1;);
+  loop(length, array[i] = defaultValue; i += 1;);
 
   array;
+);
+
+function getNextIterator(currentIteratorValue, arrayLength) (
+    currentIteratorValue == arrayLength - 1 ? 0 : currentIteratorValue + 1;
 );
 
 
@@ -66,4 +70,22 @@ function standardDeviation(array, length) local(average, differenceSum, i) (
     loop(length, differenceSum += (average - array[i])^2; i += 1);
 
     sqrt(differenceSum / length);
+);
+
+function acceleration(array, length, startIndex) local(sum, i1, i2) (
+    sum = 0;
+    i1 = startIndex;
+    i2 = startIndex + 1;
+
+    loop(length - 1,
+        i1 == length ? i1 = 0;
+        i2 == length ? i2 = 0;
+
+        sum += (array[i2] - array[i1]);
+
+        i1 += 1;
+        i2 += 1;
+    );
+
+    sum / (length - 1);
 );
