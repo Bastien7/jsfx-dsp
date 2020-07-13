@@ -9,13 +9,13 @@ out_pin: Left output
 out_pin: Right output
 
 slider1:1<0.1,100,0.1>Sample duration (ms)
-slider2:0<0,1,1{Ready,Learning}>Learning phase mode
-slider3:12<0,12,0.1>Attack
-slider4:12<0,12,0.1>Sustain
-slider5:-27<-54,0,0.1>Target volume
-slider6:0<-24,24,0.1>Output volume
-slider7:100<0,200,1>Mix
-slider12:.5<.01, 1, .01>Gain difference limit
+slider2:1<0,1,1{Ready,Learning input,Compensating output}>Learning phase mode
+slider3:-27<-54,0,0.1>Target volume
+slider4:100<0,100,1>Attack
+slider5:12<0,24,.1>Sustain
+slider6:100<0,200,1>Mix
+slider12:0<-24,24,0.1>Output change
+slider13:0<-24,24,0.01>Volume compensation
 
 
 @init
@@ -86,49 +86,59 @@ function addSignalLevels(targetVolumeDb, inputVolume, currentRatio) local(inputV
 
 
 function setGainSliderValue(ratio) (
-  slider6 = round(convertRatioToDbGain(ratio), 1);
+  slider12 = round(convertRatioToDbGain(ratio), 1);
 );
 
 function setTargetVolume(newVolumeDb) (
-  slider5 != newVolumeDb ? slider5 = round(newVolumeDb, 1);
-  targetVolume = convertDbLevelToRatio(newVolumeDb);
+  slider3 != newVolumeDb ? slider3 = round(newVolumeDb, 1);
   targetVolumeDb = newVolumeDb;
-  rangeUpperDb = newVolumeDb + slider3;
-  rangeLowerDb = newVolumeDb - slider4;
-  gateDb = rangeLowerDb - slider4;
+  rangeLowerDb = newVolumeDb - slider5;
+  gateDb = rangeLowerDb - slider5;
 );
 
 
 
 function autoLearnInputOutput() (
-    slider2 == 1 ? (
-        oldMode == 0 ? (
-            measureInputIntegration.count / srate < 10 ? measureInputIntegration.resetSample();
+    slider2 != oldMode ? (
+        slider2 == 1 ? ( //go back to learn input, so reset input/output measures
+            measureInputIntegration.resetSample();
             measureOutputIntegration.resetSample();
-            oldMode=1;
-        );
-
-        measureOutputIntegration.count / srate >= 10 ? ( //TODO add more condition on input/output integration stabilization
-            slider2 = 0;
-            differenceToCompensate = convertRatioToDbGain(measureInputIntegration.average / measureOutputIntegration.average);
         ) : (
-            setTargetVolume(convertRmsToDb(measureInputIntegration.average));
-            measureInputIntegration.learnNewLevel(sample.getAbsoluteVolume());
-            measureInputIntegration.count / srate >= 10 ? measureOutputIntegration.learnNewLevel(result.getAbsoluteVolume()); //learn if input is ready
+            slider2 == 2 ? (
+                measureOutputIntegration.resetSample();
+            );
         );
     );
+
+    slider2 == oldMode ? (
+        slider2 == 1 ? (
+            measureInputIntegration.learnNewLevel(sample.getAbsoluteVolume());
+            setTargetVolume(convertRmsToDb(measureInputIntegration.average));
+
+            measureInputIntegration.count / srate >= 10 ? slider2 = 2; //input measure done, now measure output
+        ) : (
+            slider2 == 2 ? (
+                //compensate the volume difference between input and output after compression
+                measureOutputIntegration.learnNewLevel(result.getAbsoluteVolume()); //learn if input is ready
+                unifier.outputCompensation = measureOutputIntegration.count / srate > 2 ? convertDbLevelToRatio(slider3) / measureOutputIntegration.average : 1;
+                slider13 = round(convertRatioToDbGain(unifier.outputCompensation), 1);
+
+                measureOutputIntegration.count / srate >= 10 ? slider2 = 0; //TODO add more condition on input/output integration stabilization
+            );
+        );
+    );
+
     oldMode = slider2;
 );
 
 
 
-function getAppliedRatio() local(compensationRatio) (
-    //compensate the volume difference between input and output after compression
-    //compensationRatio = measureOutputIntegration.count / srate > 10 ? measureInputIntegration.average / measureOutputIntegration.average : 1;
-
-    ((100-slider7)/100) * 1 + (slider7/100) * this.ratio * 1;
+function getAppliedRatio() (
+    ((100-slider6)/100) * 1 + (slider6/100) * this.ratio * this.outputCompensation;
 );
-
+function getAppliedRatioWithCompensation() (
+    this.getAppliedRatio() * this.outputCompensation;
+);
 function getNextAccelerationRatio(array, arrayIterator, arrayLength) local(acceleration, average) (
     acceleration = acceleration(array, arrayLength, arrayIterator);
     average = average(array, arrayLength);
@@ -165,13 +175,13 @@ function computeRatio(measureVolume) local(volumeDb, dbToCompensate, accelerated
         //modeAttack += 1;
     );
     
-    volumeDb <= targetVolumeDb && volumeDb >= targetVolumeDb - slider4 && measureVolume != -1 ? (
+    volumeDb <= targetVolumeDb && volumeDb >= targetVolumeDb - slider5 && measureVolume != -1 ? (
         this.addAttackRatio(0);
         this.addAttackReleaseRatio(0);
         //modeSustain += 1;
     );
 
-    measureVolume == -1 || volumeDb < targetVolumeDb - slider4 ? ( //means no signal, ratios must be released
+    measureVolume == -1 || volumeDb < targetVolumeDb - slider5 ? ( //means no signal, ratios must be released
         this.addAttackRatio(0);
         this.addAttackReleaseRatio(0);
         //modeNothing += 1;
@@ -184,7 +194,7 @@ function computeRatio(measureVolume) local(volumeDb, dbToCompensate, accelerated
     acceleratedSustainReleaseRatio = convertDbGainToRatio(this.getNextAccelerationRatio(this.ratioSustainReleaseMemory, this.ratioSustainReleaseMemoryIterator, RATIO_SUSTAIN_RELEASE_MEMORY_LENGTH));
 
     attackRatio = min(acceleratedAttackRatio, acceleratedAttackReleaseRatio);
-    sustainRatio = max(acceleratedSustainRatio, acceleratedSustainReleaseRatio);
+    sustainRatio = min(acceleratedSustainRatio, acceleratedSustainReleaseRatio);
 
     middleRatio = sqrt((attackRatio * attackRatio + sustainRatio * sustainRatio) / 2);
     
@@ -196,8 +206,8 @@ function computeRatio(measureVolume) local(volumeDb, dbToCompensate, accelerated
     mixSustain = min(1, max(0, 1 - ((1+range)-average)/(2*range)));
     mixSum = mixAttack + mixSustain;
     mixAverage = average;
-    
-    //this.ratio = acceleratedSustainRatio;
+
+    this.ratio = sustainRatio * ((100-slider4)/100 + (slider4/100) * attackRatio);
     setGainSliderValue(this.getAppliedRatio());
 );
 
@@ -211,13 +221,13 @@ function computeRatio2(measureVolume) local(volumeDb, dbToCompensate, accelerate
         //modeAttack += 1;
     );
 
-    volumeDb <= targetVolumeDb && volumeDb >= targetVolumeDb - slider4 && measureVolume != -1 ? (
+    volumeDb <= targetVolumeDb && volumeDb >= targetVolumeDb - slider5 && measureVolume != -1 ? (
         this.addSustainRatio(dbToCompensate);
         this.addSustainReleaseRatio(dbToCompensate);
         //modeSustain += 1;
     );
 
-    measureVolume == -1 || volumeDb < targetVolumeDb - slider4 ? ( //means no signal, ratios must be released
+    measureVolume == -1 || volumeDb < targetVolumeDb - slider5 ? ( //means no signal, ratios must be released
         this.addSustainRatio(0);
         this.addSustainReleaseRatio(0);
         //modeNothing += 1;
@@ -230,35 +240,39 @@ function computeRatio2(measureVolume) local(volumeDb, dbToCompensate, accelerate
     acceleratedSustainReleaseRatio = convertDbGainToRatio(this.getNextAccelerationRatio(this.ratioSustainReleaseMemory, this.ratioSustainReleaseMemoryIterator, RATIO_SUSTAIN_RELEASE_MEMORY_LENGTH));
 
     attackRatio = min(acceleratedAttackRatio, acceleratedAttackReleaseRatio);
-    sustainRatio = max(acceleratedSustainRatio, acceleratedSustainReleaseRatio);
+    sustainRatio = min(acceleratedSustainRatio, acceleratedSustainReleaseRatio);
 
     middleRatio = sqrt((attackRatio * attackRatio + sustainRatio * sustainRatio) / 2);
 
     average = middleRatio;//(attackRatio + sustainRatio) / 2;
 
     range = .2;
-    this.ratio = min(1, max(0, 1 - (average-(1-range))/(2*range))) * attackRatio + min(1, max(0, 1 - ((1+range)-average)/(2*range))) * sustainRatio;
+    //this.ratio = min(1, max(0, 1 - (average-(1-range))/(2*range))) * attackRatio + min(1, max(0, 1 - ((1+range)-average)/(2*range))) * sustainRatio;
     mixAttack = min(1, max(0, 1 - (average-(1-range))/(2*range)));
     mixSustain = min(1, max(0, 1 - ((1+range)-average)/(2*range)));
     mixSum = mixAttack + mixSustain;
     mixAverage = average;
 
     //this.ratio = sustainRatio;
-    setGainSliderValue(this.getAppliedRatio());
+    this.sustainRatio = sustainRatio;
+    //setGainSliderValue(this.getAppliedRatio());
 );
 
 //Variables initialization
 MINIMUM_VOLUME = 54;
 learnDuration = srate;
 oldMode = slider2;
+oldMixValue = slider6; 
 measure.resetSample();
 measureSustain.resetSample();
-setTargetVolume(slider5);
+setTargetVolume(slider3);
 unifier.oldAttackRatio = 1;
 unifier.oldSustainRatio = 1;
+unifier.sustainRatio = 1;
+unifier.outputCompensation = 1;
 
-RATIO_ATTACK_MEMORY_LENGTH = 40;//20
-RATIO_ATTACK_RELEASE_MEMORY_LENGTH = 100;//40
+RATIO_ATTACK_MEMORY_LENGTH = 80;//40
+RATIO_ATTACK_RELEASE_MEMORY_LENGTH = 200;//100
 unifier.ratioAttackMemory = createArrayAndInit(RATIO_ATTACK_MEMORY_LENGTH, 0);
 unifier.ratioAttackMemoryIterator = 0;
 unifier.ratioAttackReleaseMemory = createArrayAndInit(RATIO_ATTACK_RELEASE_MEMORY_LENGTH, 0);
@@ -282,30 +296,32 @@ visualizer.signalCounter = 0; //for data/frame synchronization
 @slider
 learnDuration = slider1 / 1000 * srate;
 learnDurationSustain = 50 / 1000 * srate;
-setTargetVolume(slider5);
+setTargetVolume(slider3);
 
-/*
-slider2 == oldMode && slider2 == 0 ? ( //parameters changes, output measure has to be restarted
-    slider2 = 1;
-    measureOutputIntegration.resetSample();
-);*/
+slider2 == oldMode && slider2 == 0 && (slider3 != oldTargetSliderValue || slider4 != oldAttackSliderValue || slider5 != oldSustainSliderValue) ? ( //parameters changes, so output measure has to be restarted
+    slider2 = 2;
+);
+
+oldTargetSliderValue = slider3;
+oldAttackSliderValue = slider4;
+oldSustainSliderValue = slider5;
 
 
  
 @block
-measure.count >= learnDuration ? (
-    unifier.computeRatio(measure.average);
-    measure.resetSample();
-);
 measureSustain.count >= learnDurationSustain ? (
     unifier.computeRatio2(measureSustain.average);
     measureSustain.resetSample();
+);
+measure.count >= learnDuration ? (
+    unifier.computeRatio(measure.average * unifier.sustainRatio);
+    measure.resetSample();
 );
 
 //TODO move this part to computeRatio?
 noSignal > srate/10 ? (
     unifier.computeRatio(-1);
-    //unifier.computeRatio2(-1);
+    unifier.computeRatio2(-1);
     measure.resetSample();
     measureSustain.resetSample();
     //unifier.ratio = max(1, unifier.ratio / 2);
@@ -333,7 +349,7 @@ visualizer.inputMeasure.learnNewLevel(sample.getAbsoluteVolume());
 autoLearnInputOutput();
 
 
-result.getSample(unifier.getAppliedRatio() * sample.left, unifier.getAppliedRatio() * sample.right);
+result.getSample(unifier.getAppliedRatioWithCompensation() * sample.left, unifier.getAppliedRatioWithCompensation() * sample.right);
 resultDb = convertRmsToDb(result.getAbsoluteVolume());
 
 
@@ -354,7 +370,6 @@ spl1 = result.right;
 
 @gfx 300 600
 heightTarget = -targetVolumeDb / MINIMUM_VOLUME * gfx_h;
-heightUpper = -(rangeUpperDb) / MINIMUM_VOLUME * gfx_h;
 heightLower = -(rangeLowerDb) / MINIMUM_VOLUME * gfx_h;
 heightGate = -(gateDb) / MINIMUM_VOLUME * gfx_h;
 
@@ -375,7 +390,6 @@ gfx_blurto(gfx_w, gfx_h);
 gfx_r=.6;
 gfx_g=.6;
 gfx_b=0;
-gfx_line(0, heightUpper, gfx_w, heightUpper);
 gfx_line(0, heightLower, gfx_w, heightLower);
 
 //gate
