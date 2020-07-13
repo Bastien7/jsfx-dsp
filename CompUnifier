@@ -386,6 +386,17 @@ gfx_x=gfx_y=0;
 gfx_blurto(gfx_w, gfx_h);
 
 
+dbIndicator = -6;
+loop(5,
+    gfx_r=1;
+    gfx_g=1;
+    gfx_b=1;
+    gfx_a=.2;
+    gfx_line(0, heightTarget + (dbIndicator * gfx_h/MINIMUM_VOLUME), gfx_w, heightTarget + (dbIndicator * gfx_h/MINIMUM_VOLUME));
+    dbIndicator += 3;
+);
+gfx_a=1;
+
 //range limits
 gfx_r=.6;
 gfx_g=.6;
